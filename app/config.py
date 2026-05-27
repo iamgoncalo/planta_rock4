@@ -36,6 +36,8 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://localhost:5173",
         "http://localhost:8000",
+        "https://www.plantarockinrio.com",
+        "https://plantarockinrio.com",
     ]
 
 
