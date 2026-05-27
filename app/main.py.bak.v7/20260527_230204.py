@@ -25,10 +25,6 @@ from app.routers.chat import router as chat_router
 from app.routers.simulate import router as simulate_router
 from app.routers.scor import router as scor_router
 from app.routers.devices import router as devices_router
-from app.routers.cleaning import router as cleaning_router
-from app.routers.staff import router as staff_router
-from app.routers.incidents import router as incidents_router
-from app.routers.weather import router as weather_router
 
 logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
@@ -49,7 +45,6 @@ def create_app() -> FastAPI:
             from app.db import engine, Base
             # Import models so they register with Base.metadata
             from app.models.db.sensors import ClusterRef, Sensor, SensorHealth, MaintenanceLog, TerminalLog  # noqa
-            from app.models.db.operations import CleaningLog, StaffRoster, IncidentLog  # noqa  # noqa
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
             logger.info("DB startup: tables ensured (SQLAlchemy create_all)")
@@ -126,10 +121,6 @@ def create_app() -> FastAPI:
     app.include_router(simulate_router)
     app.include_router(scor_router)
     app.include_router(devices_router)
-    app.include_router(cleaning_router)
-    app.include_router(staff_router)
-    app.include_router(incidents_router)
-    app.include_router(weather_router)
 
     # WebSocket: broadcasts live payload every 5s to connected clients
     @app.websocket("/api/v1/ws")
