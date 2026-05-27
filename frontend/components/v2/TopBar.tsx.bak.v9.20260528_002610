@@ -14,8 +14,6 @@ const NAV_ITEMS = [
   { href: '/v2/operations', label: 'Operações' },
   { href: '/v2/cleaning', label: 'Limpeza' },
   { href: '/v2/incidents', label: 'Incidentes' },
-  { href: '/v2/scor', label: 'SCOR' },
-  { href: '/v2/pipelines', label: 'Pipelines' },
   { href: '/v2/chat', label: 'Chat AI' },
 ];
 

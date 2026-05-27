@@ -15,8 +15,6 @@ from datetime import datetime, timezone
 from statistics import mean
 
 import httpx
-from datetime import datetime, timezone
-from app.services.scor_history import scor_history, ScorPublishRecord
 
 ALL_CLUSTERS = ["wc-01", "wc-02", "wc-03", "wc-04",
                 "wc-05", "wc-06", "wc-07", "wc-08"]
@@ -155,26 +153,10 @@ async def push_once(client: httpx.AsyncClient, url: str) -> bool:
         _log_cluster_detail(payload)
         return True
     try:
-        _scor_t0 = time.time()
         r = await client.post(url, json=payload, timeout=8.0)
         if 200 <= r.status_code < 300:
             _log(f"scor.publish.OK status={r.status_code} kpi_01={payload['kpi_01']} kpi_02={payload['kpi_02']} kpi_03={payload['kpi_03']} kpi_04={payload['kpi_04']}")
             _log_cluster_detail(payload)
-            try:
-                _dt_ms = int((time.time() - _scor_t0) * 1000)
-                await scor_history.add(ScorPublishRecord(
-                    ts=time.time(),
-                    iso=datetime.fromtimestamp(time.time(), tz=timezone.utc).isoformat(),
-                    status=r.status_code,
-                    duration_ms=_dt_ms,
-                    kpi_01=int(payload.get("kpi_01", 0)),
-                    kpi_02=float(payload.get("kpi_02", 0.0)),
-                    kpi_03=int(payload.get("kpi_03", 0)),
-                    kpi_04=int(payload.get("kpi_04", 0)),
-                    cluster_count=8,
-                ))
-            except Exception:
-                pass
             return True
         _log(f"scor.publish.ERROR status={r.status_code} body={r.text[:200]}")
         return False
