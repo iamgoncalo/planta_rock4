@@ -846,7 +846,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 // Anexa as funções operacionais ao objecto `api` já exportado
-const _opsExtension = {
+Object.assign(api, {
   cleaningSchedule: () =>
     getJson<CleaningScheduleResponse>('/api/v1/cleaning/schedule'),
 
@@ -887,12 +887,4 @@ const _opsExtension = {
     getJson<ForecastResponse>(
       `/api/v1/forecast/cluster/${clusterId}?horizon_min=${horizonMin}`,
     ),
-};
-
-// Aplica em runtime
-Object.assign(api, _opsExtension);
-
-// Tipagem combinada para o TypeScript reconhecer os novos metodos
-type _ApiWithOps = typeof api & typeof _opsExtension;
-export const apiOps = api as _ApiWithOps;
-
+});

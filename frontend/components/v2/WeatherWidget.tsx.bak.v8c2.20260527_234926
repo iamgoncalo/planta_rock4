@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiOps as api, type WeatherNow } from '@/lib/v2-api';
+import { api, type WeatherNow } from '@/lib/v2-api';
 
 const REFRESH_MS = 10 * 60 * 1000; // 10 min — alinhado com cache do backend
 

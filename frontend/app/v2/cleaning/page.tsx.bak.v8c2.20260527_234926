@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiOps as api, type CleaningClusterStatus } from '@/lib/v2-api';
+import { api, type CleaningClusterStatus } from '@/lib/v2-api';
 
 const REFRESH_MS = 30_000;
 

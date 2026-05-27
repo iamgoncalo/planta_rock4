@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  apiOps as api,
+  api,
   type IncidentEntry,
   type IncidentSeverity,
   type IncidentCategory,
