@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import PlantaChatbot from '@/components/v2/PlantaChatbot';
 import { Cormorant_Garamond, DM_Sans, DM_Mono } from 'next/font/google';
 import TopBar from '@/components/v2/TopBar';
 import LiveTerminal from '@/components/v2/LiveTerminal';
@@ -37,7 +38,8 @@ export default function V2Layout({ children }: { children: React.ReactNode }) {
       className={`${cormorant.variable} ${dmSans.variable} ${dmMono.variable} v2-root`}
     >
       <TopBar />
-      <main className="v2-content">{children}</main>
+      <main className="v2-content">{children}
+      <PlantaChatbot /></main>
       <LiveTerminal />
     </div>
   );

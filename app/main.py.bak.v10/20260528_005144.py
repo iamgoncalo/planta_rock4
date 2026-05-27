@@ -32,8 +32,6 @@ from app.routers.weather import router as weather_router
 from app.routers.cleaning_v9 import router as cleaning_v9_router
 from app.routers.scor_observability import router as scor_obs_router
 from app.routers.pipelines import router as pipelines_router
-from app.routers.telemetry import router as telemetry_router
-from app.routers.cleaning_calendar import router as cleaning_calendar_router
 from app.routers.forecast import router as forecast_router
 
 logger = logging.getLogger(__name__)
@@ -144,8 +142,6 @@ def create_app() -> FastAPI:
     app.include_router(cleaning_v9_router)
     app.include_router(scor_obs_router)
     app.include_router(pipelines_router)
-    app.include_router(telemetry_router)
-    app.include_router(cleaning_calendar_router)
     app.include_router(forecast_router)
 
     # WebSocket: broadcasts live payload every 5s to connected clients

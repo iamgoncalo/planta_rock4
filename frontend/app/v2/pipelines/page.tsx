@@ -1,16 +1,30 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { apiV9 as api } from '@/lib/v2-api';
-import type { PipelinesOverview, PipelineNode } from '@/lib/v2-api';
+import { useEffect, useRef, useState } from 'react';
 
-const REFRESH_MS = 10_000;
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://api.plantarockinrio.com';
 
-const ROLE_META: Record<string, { icon: string; color: string; label: string }> = {
-  ingestion:  { icon: '📡', color: '#1B5A8B', label: 'INGESTÃO' },
-  processing: { icon: '⚙', color: '#4A7C59', label: 'PROCESSAMENTO' },
-  output:     { icon: '📤', color: '#7A4A8E', label: 'SAÍDA' },
-  ai:         { icon: '✦', color: '#A85D00', label: 'INTELIGÊNCIA' },
+interface PipelineNode {
+  id: string;
+  label: string;
+  role: 'ingestion' | 'processing' | 'output' | 'ai';
+  status: 'live' | 'pre_install' | 'idle' | 'error';
+  rate_per_minute: number;
+  last_event_iso: string | null;
+  details: Record<string, unknown>;
+}
+
+interface PipelinesOverview {
+  nodes: PipelineNode[];
+  generated_at: string;
+  hardware_install_date: string;
+}
+
+const ROLE_META: Record<string, { color: string; icon: string; label: string; x: number }> = {
+  ingestion:  { color: '#1B5A8B', icon: '📡', label: 'INGESTÃO',    x: 0.10 },
+  processing: { color: '#4A7C59', icon: '⚙',  label: 'PROCESSAMENTO', x: 0.37 },
+  output:     { color: '#7A4A8E', icon: '📤', label: 'SAÍDA',         x: 0.65 },
+  ai:         { color: '#A85D00', icon: '✦',  label: 'IA',            x: 0.92 },
 };
 
 const STATUS_META: Record<string, { bg: string; ink: string; label: string }> = {
@@ -20,48 +34,143 @@ const STATUS_META: Record<string, { bg: string; ink: string; label: string }> = 
   error:       { bg: '#F8D9C4', ink: '#8B3D0A', label: 'ERRO' },
 };
 
-function fmtTime(iso: string | null): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleTimeString('pt-PT', {
-    hour: '2-digit', minute: '2-digit', second: '2-digit',
-  });
+interface Particle {
+  fromX: number;
+  toX: number;
+  y: number;
+  progress: number;
+  speed: number;
+  color: string;
 }
 
 export default function PipelinesPage() {
   const [data, setData] = useState<PipelinesOverview | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const particlesRef = useRef<Particle[]>([]);
+  const animationRef = useRef<number | null>(null);
 
-  const fetchAll = async () => {
-    try {
-      const d = await api.pipelinesOverview();
-      setData(d);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'erro');
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Fetch overview a cada 5s
   useEffect(() => {
+    let mounted = true;
+    const fetchAll = async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/v1/pipelines/overview`);
+        const j = await r.json() as PipelinesOverview;
+        if (mounted) {
+          setData(j);
+          setError(null);
+        }
+      } catch (e) {
+        if (mounted) setError(e instanceof Error ? e.message : 'erro');
+      }
+    };
     fetchAll();
-    const iv = setInterval(fetchAll, REFRESH_MS);
-    return () => clearInterval(iv);
+    const iv = setInterval(fetchAll, 5000);
+    return () => { mounted = false; clearInterval(iv); };
+  }, []);
+
+  // Particle generation — sempre que data muda, gerar partículas baseadas em rate
+  useEffect(() => {
+    if (!data) return;
+    const interval = setInterval(() => {
+      const c = canvasRef.current;
+      if (!c) return;
+      const w = c.width;
+      data.nodes.forEach((node, idx) => {
+        if (node.status !== 'live') return;
+        // Próximo nó (se este for ingestion → processing → output)
+        const order: PipelineNode['role'][] = ['ingestion', 'processing', 'output'];
+        const myIdx = order.indexOf(node.role);
+        if (myIdx === -1 || myIdx === order.length - 1) return;
+        const nextRole = order[myIdx + 1];
+        const fromX = (ROLE_META[node.role]?.x || 0) * w;
+        const toX = (ROLE_META[nextRole]?.x || 0) * w;
+        // Quantas partículas? proporcional à rate
+        const count = Math.min(3, Math.ceil(node.rate_per_minute / 30));
+        for (let i = 0; i < count; i++) {
+          particlesRef.current.push({
+            fromX,
+            toX,
+            y: 80 + Math.random() * 30,
+            progress: 0,
+            speed: 0.008 + Math.random() * 0.005,
+            color: ROLE_META[node.role]?.color || '#4A7C59',
+          });
+        }
+      });
+    }, 800);
+    return () => clearInterval(interval);
+  }, [data]);
+
+  // Canvas animation loop
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const resize = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+    };
+    resize();
+    window.addEventListener('resize', resize);
+
+    const draw = () => {
+      const w = canvas.width / (window.devicePixelRatio || 1);
+      const h = canvas.height / (window.devicePixelRatio || 1);
+      ctx.clearRect(0, 0, w, h);
+
+      // Linhas guia entre nós
+      ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0.10 * w, 95);
+      ctx.lineTo(0.92 * w, 95);
+      ctx.stroke();
+
+      // Partículas
+      particlesRef.current = particlesRef.current.filter(p => p.progress < 1);
+      particlesRef.current.forEach(p => {
+        p.progress += p.speed;
+        const x = p.fromX + (p.toX - p.fromX) * p.progress;
+        const alpha = p.progress < 0.5
+          ? p.progress * 2
+          : (1 - p.progress) * 2;
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = Math.min(1, alpha);
+        ctx.beginPath();
+        ctx.arc(x, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+
+      animationRef.current = requestAnimationFrame(draw);
+    };
+    draw();
+
+    return () => {
+      window.removeEventListener('resize', resize);
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    };
   }, []);
 
   return (
     <div style={{ padding: '32px 24px 96px', maxWidth: 1400, margin: '0 auto' }}>
-      <div style={{ marginBottom: 20 }}>
-        <div className="section-label">Sistema · Pipelines de dados</div>
+      <div style={{ marginBottom: 18 }}>
+        <div className="section-label">Sistema · Pipelines · Fluxo de dados</div>
         <h1 className="serif" style={{
           fontSize: 'clamp(26px, 4vw, 40px)',
           fontWeight: 500, color: 'var(--color-ink)', lineHeight: 1.1, marginBottom: 6,
         }}>
-          Fluxos de dados
+          Fluxo de dados
         </h1>
         <p style={{ color: 'var(--color-muted)', fontSize: 13, lineHeight: 1.55 }}>
-          Onde os dados entram, como são processados e para onde saem · refresh {REFRESH_MS / 1000}s
+          De onde os dados vêm, como são processados, para onde vão · animação em tempo real
         </p>
       </div>
 
@@ -71,16 +180,75 @@ export default function PipelinesPage() {
         </div>
       )}
 
-      {loading && !data && (
-        <div style={{ color: 'var(--color-muted)', padding: 24 }}>A carregar...</div>
-      )}
+      {/* CANVAS — animação de partículas */}
+      <div style={{
+        position: 'relative',
+        background: 'white',
+        border: '1px solid var(--color-border)',
+        borderRadius: 12,
+        padding: 24,
+        marginBottom: 20,
+        minHeight: 200,
+      }}>
+        <canvas ref={canvasRef} style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+        }} />
+        <div style={{
+          position: 'relative',
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, 1fr)',
+          gap: 8,
+          alignItems: 'center',
+        }}>
+          {(['ingestion', 'processing', 'output', 'ai'] as const).map(role => {
+            const node = data?.nodes.find(n => n.role === role);
+            const meta = ROLE_META[role];
+            return (
+              <div key={role} style={{
+                background: 'white',
+                border: `2px solid ${node?.status === 'live' ? meta.color : 'var(--color-border)'}`,
+                borderRadius: 10,
+                padding: 14,
+                textAlign: 'center',
+                opacity: node?.status === 'pre_install' ? 0.55 : 1,
+                position: 'relative',
+                zIndex: 2,
+              }}>
+                <div style={{ fontSize: 28, marginBottom: 4 }}>{meta.icon}</div>
+                <div className="mono" style={{
+                  fontSize: 9, letterSpacing: '0.12em',
+                  textTransform: 'uppercase', color: meta.color, fontWeight: 700, marginBottom: 2,
+                }}>{meta.label}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-ink)' }}>
+                  {node?.label || '—'}
+                </div>
+                {node && (
+                  <div style={{
+                    marginTop: 8,
+                    fontSize: 11, color: 'var(--color-muted)',
+                    paddingTop: 6, borderTop: '1px dashed var(--color-border)',
+                  }}>
+                    {node.rate_per_minute > 0
+                      ? <><strong style={{ color: 'var(--color-ink)' }}>{node.rate_per_minute.toFixed(1)}</strong> ev/min</>
+                      : <span className="mono">—</span>
+                    }
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
-      {/* DATA FLOW VISUAL */}
+      {/* CARDS detalhados */}
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
         gap: 14,
-        marginBottom: 24,
       }}>
         {data?.nodes.map(node => {
           const role = ROLE_META[node.role] || ROLE_META.processing;
@@ -91,20 +259,14 @@ export default function PipelinesPage() {
               border: '1px solid var(--color-border)',
               borderTop: `3px solid ${role.color}`,
               borderRadius: 10,
-              padding: 18,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
+              padding: 16,
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                 <div>
-                  <div className="mono" style={{
-                    fontSize: 9, color: role.color, letterSpacing: '0.12em',
-                    textTransform: 'uppercase', fontWeight: 700, marginBottom: 4,
-                  }}>
+                  <div className="mono" style={{ fontSize: 9, color: role.color, letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: 700 }}>
                     {role.icon} {role.label}
                   </div>
-                  <div className="serif" style={{ fontSize: 18, fontWeight: 500, color: 'var(--color-ink)', lineHeight: 1.2 }}>
+                  <div className="serif" style={{ fontSize: 16, fontWeight: 500, color: 'var(--color-ink)', marginTop: 2 }}>
                     {node.label}
                   </div>
                 </div>
@@ -112,109 +274,32 @@ export default function PipelinesPage() {
                   background: status.bg, color: status.ink,
                   padding: '3px 8px', borderRadius: 999,
                   fontSize: 9, fontWeight: 700, letterSpacing: '0.08em',
-                  whiteSpace: 'nowrap',
                 }}>{status.label}</span>
               </div>
-
-              {/* Rate */}
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, borderTop: '1px dashed var(--color-border)', paddingTop: 8 }}>
-                <span className="serif" style={{ fontSize: 22, fontWeight: 500, color: 'var(--color-ink)', lineHeight: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 4, paddingTop: 6, borderTop: '1px dashed var(--color-border)' }}>
+                <span className="serif" style={{ fontSize: 22, fontWeight: 600, color: 'var(--color-ink)' }}>
                   {node.rate_per_minute > 0 ? node.rate_per_minute.toFixed(1) : '—'}
                 </span>
-                <span className="mono" style={{ fontSize: 10, color: 'var(--color-muted)' }}>
-                  eventos/min
-                </span>
+                <span className="mono" style={{ fontSize: 10, color: 'var(--color-muted)' }}>eventos/min</span>
               </div>
-
-              {/* Last event */}
-              <div style={{ fontSize: 11, color: 'var(--color-muted)' }}>
-                Último: <span className="mono" style={{ color: 'var(--color-ink)' }}>{fmtTime(node.last_event_iso ?? null)}</span>
-              </div>
-
-              {/* Details */}
-              <div style={{
-                background: '#FAFAF7', borderRadius: 6,
-                padding: 8, fontSize: 11, color: 'var(--color-muted)',
-                marginTop: 4,
-              }}>
-                {Object.entries(node.details).slice(0, 5).map(([k, v]) => (
-                  <div key={k} style={{ marginBottom: 2 }}>
-                    <span className="mono" style={{ color: 'var(--color-ink)' }}>{k}:</span>{' '}
-                    {typeof v === 'object' ? JSON.stringify(v) : String(v)}
-                  </div>
-                ))}
-              </div>
+              {node.details && (
+                <div style={{
+                  background: '#FAFAF7', borderRadius: 6,
+                  padding: 8, fontSize: 10, color: 'var(--color-muted)',
+                  marginTop: 8, maxHeight: 100, overflow: 'auto',
+                }}>
+                  {Object.entries(node.details).slice(0, 6).map(([k, v]) => (
+                    <div key={k} style={{ marginBottom: 1 }}>
+                      <span className="mono" style={{ color: 'var(--color-ink)' }}>{k}:</span>{' '}
+                      {typeof v === 'object' ? JSON.stringify(v).slice(0, 60) : String(v)}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
-
-      {/* Flow diagram inline */}
-      <div style={{
-        background: 'white',
-        border: '1px solid var(--color-border)',
-        borderRadius: 10,
-        padding: 18,
-        marginBottom: 24,
-      }}>
-        <div className="mono" style={{
-          fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase',
-          color: 'var(--color-muted)', marginBottom: 14, fontWeight: 700,
-        }}>
-          Fluxo geral
-        </div>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 8,
-          flexWrap: 'wrap',
-          fontSize: 12,
-        }}>
-          <FlowBox icon="📡" label="Sensores físicos" sub="11 Jun 2026" color="#1B5A8B" muted />
-          <Arrow />
-          <FlowBox icon="⚙" label="Auto-tick" sub="simulação 10s" color="#4A7C59" />
-          <Arrow />
-          <FlowBox icon="🗄" label="DB + state" sub="14 unidades" color="#1A1A1A" />
-          <Arrow />
-          <FlowBox icon="📤" label="Sensaway" sub="SCOR 10s" color="#7A4A8E" />
-        </div>
-        <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px dashed var(--color-border)', textAlign: 'center', fontSize: 11, color: 'var(--color-muted)' }}>
-          ↓ Frontend polling refresh 10-30s · /v2 dashboard, /v2/cleaning, /v2/scor, /v2/operations
-        </div>
-      </div>
-
-      {data && (
-        <div style={{ fontSize: 11, color: 'var(--color-muted)', textAlign: 'right' }}>
-          <span className="mono">Última actualização: {fmtTime(data.generated_at)}</span>
-        </div>
-      )}
     </div>
-  );
-}
-
-function FlowBox({ icon, label, sub, color, muted }: {
-  icon: string; label: string; sub: string; color: string; muted?: boolean;
-}) {
-  return (
-    <div style={{
-      background: muted ? '#FAFAF7' : 'white',
-      border: `1px solid ${muted ? 'var(--color-border)' : color}`,
-      borderRadius: 8,
-      padding: '10px 14px',
-      minWidth: 140,
-      textAlign: 'center',
-      opacity: muted ? 0.6 : 1,
-    }}>
-      <div style={{ fontSize: 22, marginBottom: 2 }}>{icon}</div>
-      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-ink)' }}>{label}</div>
-      <div className="mono" style={{ fontSize: 10, color: 'var(--color-muted)', marginTop: 2 }}>{sub}</div>
-    </div>
-  );
-}
-
-function Arrow() {
-  return (
-    <div style={{ fontSize: 18, color: 'var(--color-muted)' }}>→</div>
   );
 }

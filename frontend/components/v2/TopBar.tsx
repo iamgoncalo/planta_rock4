@@ -1,166 +1,145 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import PlantaLogo from './PlantaLogo';
-import WeatherWidget from './WeatherWidget';
+import { useEffect, useState } from 'react';
 
-const NAV_ITEMS = [
-  { href: '/v2', label: 'Início' },
-  { href: '/v2/twin', label: 'Digital Twin' },
-  { href: '/v2/sensors', label: 'Sensores' },
-  { href: '/v2/shows', label: 'Shows' },
-  { href: '/v2/operations', label: 'Operações' },
-  { href: '/v2/cleaning', label: 'Limpeza' },
+const NAV = [
+  { href: '/v2',           label: 'Início' },
+  { href: '/v2/twin',      label: '3D' },
+  { href: '/v2/scor',      label: 'SCOR' },
+  { href: '/v2/cleaning',  label: 'Limpeza' },
   { href: '/v2/incidents', label: 'Incidentes' },
-  { href: '/v2/scor', label: 'SCOR' },
   { href: '/v2/pipelines', label: 'Pipelines' },
-  { href: '/v2/chat', label: 'Chat AI' },
+  { href: '/v2/operations',label: 'Operações' },
+  { href: '/v2/chat',      label: 'Chat' },
 ];
 
 export default function TopBar() {
-  const pathname = usePathname() ?? '/v2';
-  const [now, setNow] = useState<string>('');
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
-    const update = () => {
-      const d = new Date();
-      const hh = String(d.getHours()).padStart(2, '0');
-      const mm = String(d.getMinutes()).padStart(2, '0');
-      const ss = String(d.getSeconds()).padStart(2, '0');
-      setNow(`${hh}:${mm}:${ss}`);
-    };
-    update();
-    const iv = setInterval(update, 1000);
-    return () => clearInterval(iv);
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  const isActive = (href: string) => {
-    if (href === '/v2') return pathname === '/v2';
-    return pathname.startsWith(href);
-  };
+  // Fechar drawer ao navegar
+  useEffect(() => { setOpen(false); }, [pathname]);
 
   return (
-    <header
-      style={{
-        position: 'fixed',
+    <>
+      <header style={{
+        position: 'sticky',
         top: 0,
-        left: 0,
-        right: 0,
-        height: 56,
-        background: 'rgba(255, 255, 255, 0.92)',
-        backdropFilter: 'blur(14px)',
-        WebkitBackdropFilter: 'blur(14px)',
-        borderBottom: '1px solid var(--border)',
         zIndex: 100,
-        display: 'flex',
-        alignItems: 'center',
-        padding: '0 22px',
-        gap: 16,
-      }}
-    >
-      <Link href="/v2" style={{ textDecoration: 'none', flexShrink: 0 }}>
-        <PlantaLogo size={26} />
-      </Link>
+        background: 'rgba(244,242,235,0.96)',
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)',
+        borderBottom: scrolled ? '1px solid var(--color-border)' : '1px solid transparent',
+        transition: 'border-color 0.2s',
+      }}>
+        <div style={{
+          maxWidth: 1400, margin: '0 auto',
+          padding: '12px 20px',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          gap: 12,
+        }}>
+          {/* Logo */}
+          <Link href="/v2" style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            textDecoration: 'none',
+          }}>
+            <div style={{
+              width: 32, height: 32,
+              background: '#1B3A21',
+              borderRadius: 8,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'white', fontSize: 18, fontWeight: 700,
+            }}>P</div>
+            <div>
+              <div className="serif" style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-ink)', lineHeight: 1 }}>
+                PlantaOS
+              </div>
+              <div className="mono" style={{ fontSize: 9, color: 'var(--color-muted)', letterSpacing: '0.08em', marginTop: 1 }}>
+                Rock in Rio LX26
+              </div>
+            </div>
+          </Link>
 
-      <div
-        style={{
-          fontFamily: 'var(--font-mono), monospace',
-          fontSize: 10,
-          color: 'var(--muted)',
-          letterSpacing: '0.08em',
-          border: '1px solid var(--border)',
-          padding: '3px 10px',
-          borderRadius: 999,
-          flexShrink: 0,
-          whiteSpace: 'nowrap',
-        }}
-      >
-        × rock in rio lisboa 2026
-      </div>
+          {/* Nav desktop */}
+          <nav style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            flexWrap: 'wrap',
+          }} className="topnav-desktop">
+            {NAV.map(item => {
+              const active = pathname === item.href ||
+                (item.href !== '/v2' && pathname?.startsWith(item.href));
+              return (
+                <Link key={item.href} href={item.href} style={{
+                  padding: '6px 12px',
+                  fontSize: 13,
+                  fontWeight: active ? 600 : 500,
+                  color: active ? 'white' : 'var(--color-ink)',
+                  background: active ? '#1B3A21' : 'transparent',
+                  borderRadius: 7,
+                  textDecoration: 'none',
+                  transition: 'all 0.15s',
+                }}>{item.label}</Link>
+              );
+            })}
+          </nav>
 
-      <nav
-        style={{
-          display: 'flex',
-          gap: 2,
-          flex: 1,
-          overflowX: 'auto',
-          scrollbarWidth: 'none',
-        }}
-      >
-        {NAV_ITEMS.map((item) => {
-          const active = isActive(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              style={{
-                padding: '6px 12px',
-                borderRadius: 6,
-                textDecoration: 'none',
-                fontSize: 13,
-                fontWeight: active ? 600 : 500,
-                color: active ? 'var(--green)' : 'var(--muted)',
-                background: active ? 'var(--green-pale)' : 'transparent',
-                whiteSpace: 'nowrap',
-                transition: 'all 0.14s',
-              }}
-            >
-              {item.label}
-            </Link>
-          );
-        })}
-      </nav>
-
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          flexShrink: 0,
-        }}
-      >
-        <WeatherWidget />
-        <span
-          className="pill"
-          title="Sensores físicos a instalar a 11–12 Junho 2026 · dashboard em modo demonstração até essa data"
-          style={{
-            background: 'var(--amber-bg, rgba(168,93,0,0.10))',
-            color: 'var(--amber, #A85D00)',
-            border: '1px solid rgba(168,93,0,0.22)',
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: '0.10em',
-            padding: '4px 10px',
-            borderRadius: 999,
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-          }}
-        >
-          <span
+          {/* Hamburger mobile */}
+          <button
+            onClick={() => setOpen(!open)}
+            className="topnav-burger"
             style={{
-              width: 6,
-              height: 6,
-              borderRadius: '50%',
-              background: 'var(--amber, #A85D00)',
+              display: 'none',
+              background: 'transparent',
+              border: '1px solid var(--color-border)',
+              borderRadius: 8,
+              padding: '6px 10px',
+              fontSize: 18,
+              cursor: 'pointer',
             }}
-          />
-          PRÉ-INSTALAÇÃO · 11 JUN
-        </span>
-        <span
-          className="mono"
-          style={{
-            fontSize: 11,
-            color: 'var(--faint)',
-            minWidth: 60,
-            textAlign: 'right',
-          }}
-        >
-          {now}
-        </span>
-      </div>
-    </header>
+          >{open ? '✕' : '☰'}</button>
+        </div>
+
+        {/* Drawer mobile */}
+        {open && (
+          <div style={{
+            background: '#F4F2EB',
+            borderTop: '1px solid var(--color-border)',
+            padding: '10px 16px',
+          }} className="topnav-mobile">
+            {NAV.map(item => {
+              const active = pathname === item.href ||
+                (item.href !== '/v2' && pathname?.startsWith(item.href));
+              return (
+                <Link key={item.href} href={item.href} style={{
+                  display: 'block',
+                  padding: '10px 12px',
+                  fontSize: 14,
+                  fontWeight: active ? 700 : 500,
+                  color: active ? '#1B3A21' : 'var(--color-ink)',
+                  borderLeft: active ? '3px solid #1B3A21' : '3px solid transparent',
+                  textDecoration: 'none',
+                }}>{item.label}</Link>
+              );
+            })}
+          </div>
+        )}
+      </header>
+
+      <style jsx global>{`
+        @media (max-width: 880px) {
+          .topnav-desktop { display: none !important; }
+          .topnav-burger { display: block !important; }
+        }
+      `}</style>
+    </>
   );
 }
