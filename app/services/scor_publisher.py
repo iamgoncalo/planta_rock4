@@ -120,6 +120,28 @@ def _build_payload(state: dict) -> dict:
     }
 
 
+
+def _log_cluster_detail(payload: dict) -> None:
+    """Log de cada um dos 8 clusters com TODOS os params, sempre."""
+    for c in payload.get("clusters", []):
+        cid = c.get("cluster_id", "?")
+        p = c.get("params", {})
+        # Formato compacto mas completo, em ordem fixa, fácil de ler
+        line = (
+            f"  --> {cid:>6} | "
+            f"pessoas={p.get('pessoas_estimadas', 0):>3} "
+            f"homens={'---' if p.get('homens') is None else f'{p.get(\"homens\"):>3}'} "
+            f"mulheres={'---' if p.get('mulheres') is None else f'{p.get(\"mulheres\"):>3}'} "
+            f"ocup%={p.get('ocupacao_instantanea', 0):>3} "
+            f"in={p.get('entradas_ir', 0):>4} out={p.get('saidas_ir', 0):>4} "
+            f"tel={p.get('telemoveis_detectados', 0):>3} "
+            f"prosegur={p.get('contagem_prosegur', 0):>3} "
+            f"conf={p.get('confianca_cruzada', 0):.2f} "
+            f"sensor={p.get('estado_sensor', '?')}"
+        )
+        _log(line)
+
+
 async def push_once(client: httpx.AsyncClient, url: str) -> bool:
     """Uma tentativa de push. Sem retry — retry é gerido pelo loop."""
     state = await _fetch_state()
@@ -131,13 +153,15 @@ async def push_once(client: httpx.AsyncClient, url: str) -> bool:
     dry = os.getenv("SCOR_DRY_RUN", "false").lower() == "true"
 
     if dry:
-        _log(f"scor.publish.DRY_RUN clusters=8 kpi_01={payload['kpi_01']} kpi_02={payload['kpi_02']} kpi_03={payload['kpi_03']}")
+        _log(f"scor.publish.DRY_RUN clusters=8 kpi_01={payload['kpi_01']} kpi_02={payload['kpi_02']} kpi_03={payload['kpi_03']} kpi_04={payload['kpi_04']}")
+        _log_cluster_detail(payload)
         return True
 
     try:
         r = await client.post(url, json=payload, timeout=8.0)
         if 200 <= r.status_code < 300:
-            _log(f"scor.publish.OK status={r.status_code} clusters=8 kpi_01={payload['kpi_01']} kpi_02={payload['kpi_02']} kpi_03={payload['kpi_03']}")
+            _log(f"scor.publish.OK status={r.status_code} kpi_01={payload['kpi_01']} kpi_02={payload['kpi_02']} kpi_03={payload['kpi_03']} kpi_04={payload['kpi_04']}")
+            _log_cluster_detail(payload)
             return True
         _log(f"scor.publish.ERROR status={r.status_code} body={r.text[:200]}")
         return False
