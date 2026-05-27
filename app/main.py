@@ -38,15 +38,24 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def startup_db():
-        """Ensure DB tables exist and start health ticker."""
+        """Ensure DB tables exist, seed initial sensor rows, and start health ticker."""
         try:
-            from app.db import engine, AsyncSessionLocal
-            from app.db import Base
+            from app.db import engine, Base
+            # Import models so they register with Base.metadata
             from app.models.db.sensors import ClusterRef, Sensor, SensorHealth, MaintenanceLog, TerminalLog  # noqa
-            # Tables are managed by Alembic — this is just a fallback check
-            logger.info("DB startup: connected to PostgreSQL")
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("DB startup: tables ensured (SQLAlchemy create_all)")
         except Exception as e:
             logger.warning(f"DB startup warning: {e}")
+
+        # Seed sensor rows if table is empty (SQLAlchemy, DB-agnostic)
+        try:
+            from app.startup_seeds import seed_sensors_if_empty
+            from app.db import AsyncSessionLocal
+            await seed_sensors_if_empty(AsyncSessionLocal)
+        except Exception as e:
+            logger.warning(f"Seed sensors warning: {e}")
 
         # Start sensor health background ticker
         try:
