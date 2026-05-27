@@ -1,0 +1,290 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { api, type CleaningClusterStatus } from '@/lib/v2-api';
+
+const REFRESH_MS = 30_000;
+
+const STATUS_COLORS: Record<string, { bg: string; ink: string; label: string }> = {
+  clean: { bg: '#E8F1EA', ink: '#1B3A21', label: 'Limpo' },
+  in_progress: { bg: '#FFF7E0', ink: '#7A5A00', label: 'A limpar' },
+  needs_cleaning: { bg: '#FDECDC', ink: '#A85D00', label: 'A aguardar' },
+  urgent: { bg: '#F8D9C4', ink: '#C25A1A', label: 'Urgente' },
+};
+
+function fmtMinutes(m: number | null | undefined): string {
+  if (m === null || m === undefined) return 'sem registo';
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem === 0 ? `${h}h` : `${h}h ${rem}m`;
+}
+
+export default function CleaningPage() {
+  const [clusters, setClusters] = useState<CleaningClusterStatus[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [marking, setMarking] = useState<string | null>(null);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+
+  const fetchSchedule = async () => {
+    try {
+      const data = await api.cleaningSchedule();
+      setClusters(data.clusters);
+      setError(null);
+      setLastUpdate(new Date());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'erro');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSchedule();
+    const iv = setInterval(fetchSchedule, REFRESH_MS);
+    return () => clearInterval(iv);
+  }, []);
+
+  const markClean = async (clusterId: string) => {
+    setMarking(clusterId);
+    try {
+      await api.cleaningMarkDone({
+        cluster_id: clusterId,
+        team: 'Equipa A',
+        operator: 'Operador',
+        notes: null,
+      });
+      await fetchSchedule();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'erro');
+    } finally {
+      setMarking(null);
+    }
+  };
+
+  const cleanCount = clusters.filter((c) => c.status === 'clean').length;
+  const urgentCount = clusters.filter((c) => c.status === 'urgent').length;
+  const needsCount = clusters.filter((c) => c.status === 'needs_cleaning').length;
+
+  return (
+    <div style={{ padding: '40px 32px 48px', maxWidth: 1280, margin: '0 auto' }}>
+      <div style={{ marginBottom: 28 }}>
+        <div className="section-label">Operações · limpeza dos 8 clusters</div>
+        <h1
+          className="serif"
+          style={{
+            fontSize: 'clamp(28px, 4vw, 44px)',
+            fontWeight: 500,
+            color: 'var(--color-ink)',
+            lineHeight: 1.1,
+            marginBottom: 8,
+          }}
+        >
+          Estado de limpeza
+        </h1>
+        <p style={{ color: 'var(--color-muted)', fontSize: 14, lineHeight: 1.6 }}>
+          Limpo nos últimos 90 min · A aguardar entre 90–180 min · Urgente acima de 180 min.{' '}
+          {lastUpdate && (
+            <span className="mono" style={{ fontSize: 11 }}>
+              actualizado {lastUpdate.toLocaleTimeString('pt-PT')}
+            </span>
+          )}
+        </p>
+      </div>
+
+      {/* KPIs */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+          gap: 12,
+          marginBottom: 24,
+        }}
+      >
+        <KpiTile label="Limpos" value={cleanCount} total={8} color="#1B3A21" />
+        <KpiTile label="A aguardar" value={needsCount} total={8} color="#A85D00" />
+        <KpiTile label="Urgentes" value={urgentCount} total={8} color="#C25A1A" />
+      </div>
+
+      {error && (
+        <div
+          style={{
+            padding: 12,
+            background: '#FDECDC',
+            color: '#C25A1A',
+            borderRadius: 8,
+            marginBottom: 16,
+            fontSize: 13,
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      {loading && clusters.length === 0 && (
+        <div style={{ color: 'var(--color-muted)', padding: 24 }}>A carregar…</div>
+      )}
+
+      {/* Grid de clusters */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gap: 16,
+        }}
+      >
+        {clusters.map((c) => {
+          const sty = STATUS_COLORS[c.status] || STATUS_COLORS.needs_cleaning;
+          return (
+            <div
+              key={c.cluster_id}
+              style={{
+                background: 'var(--card, white)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 12,
+                padding: 20,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <div
+                    className="mono"
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--color-muted)',
+                      letterSpacing: '0.08em',
+                      textTransform: 'uppercase',
+                      marginBottom: 4,
+                    }}
+                  >
+                    Cluster
+                  </div>
+                  <div
+                    className="serif"
+                    style={{ fontSize: 24, fontWeight: 500, color: 'var(--color-ink)' }}
+                  >
+                    {c.cluster_id}
+                  </div>
+                </div>
+                <span
+                  style={{
+                    background: sty.bg,
+                    color: sty.ink,
+                    padding: '4px 10px',
+                    borderRadius: 999,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {sty.label}
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gap: 6, fontSize: 13, color: 'var(--color-muted)' }}>
+                <div>
+                  <span style={{ color: 'var(--color-ink)', fontWeight: 500 }}>
+                    Há {fmtMinutes(c.minutes_since_clean)}
+                  </span>{' '}
+                  desde a última limpeza
+                </div>
+                {c.last_team && (
+                  <div className="mono" style={{ fontSize: 11 }}>
+                    {c.last_team}
+                  </div>
+                )}
+                {c.next_scheduled_for && (
+                  <div style={{ fontSize: 12 }}>
+                    Próxima:{' '}
+                    {new Date(c.next_scheduled_for).toLocaleString('pt-PT', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <button
+                onClick={() => markClean(c.cluster_id)}
+                disabled={marking === c.cluster_id}
+                style={{
+                  marginTop: 4,
+                  background: c.status === 'clean' ? 'var(--color-border)' : 'var(--color-success, #1B3A21)',
+                  color: c.status === 'clean' ? 'var(--color-muted)' : 'white',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '10px 16px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: marking === c.cluster_id ? 'wait' : 'pointer',
+                  opacity: marking === c.cluster_id ? 0.5 : 1,
+                  transition: 'all 0.15s',
+                }}
+              >
+                {marking === c.cluster_id ? 'A registar…' : 'Marcar como limpo'}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function KpiTile({
+  label,
+  value,
+  total,
+  color,
+}: {
+  label: string;
+  value: number;
+  total: number;
+  color: string;
+}) {
+  return (
+    <div
+      style={{
+        background: 'var(--card, white)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 10,
+        padding: 16,
+      }}
+    >
+      <div
+        className="mono"
+        style={{
+          fontSize: 10,
+          color: 'var(--color-muted)',
+          letterSpacing: '0.08em',
+          textTransform: 'uppercase',
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 6,
+          color,
+        }}
+      >
+        <span className="serif" style={{ fontSize: 28, fontWeight: 500, lineHeight: 1 }}>
+          {value}
+        </span>
+        <span className="mono" style={{ fontSize: 12, color: 'var(--color-muted)' }}>
+          / {total}
+        </span>
+      </div>
+    </div>
+  );
+}

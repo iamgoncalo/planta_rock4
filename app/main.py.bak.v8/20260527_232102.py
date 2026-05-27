@@ -29,7 +29,6 @@ from app.routers.cleaning import router as cleaning_router
 from app.routers.staff import router as staff_router
 from app.routers.incidents import router as incidents_router
 from app.routers.weather import router as weather_router
-from app.routers.forecast import router as forecast_router
 
 logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
@@ -131,7 +130,6 @@ def create_app() -> FastAPI:
     app.include_router(staff_router)
     app.include_router(incidents_router)
     app.include_router(weather_router)
-    app.include_router(forecast_router)
 
     # WebSocket: broadcasts live payload every 5s to connected clients
     @app.websocket("/api/v1/ws")
