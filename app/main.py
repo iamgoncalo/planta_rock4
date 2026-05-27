@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import json
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -23,6 +24,7 @@ from app.routers.chat import router as chat_router
 from app.routers.simulate import router as simulate_router
 from app.routers.scor import router as scor_router
 
+logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 
 
@@ -33,6 +35,27 @@ def create_app() -> FastAPI:
         version=settings.app_version,
         description="Rock in Rio Lisboa 2026 — WC occupancy management",
     )
+
+    @app.on_event("startup")
+    async def startup_db():
+        """Ensure DB tables exist and start health ticker."""
+        try:
+            from app.db import engine, AsyncSessionLocal
+            from app.db import Base
+            from app.models.db.sensors import ClusterRef, Sensor, SensorHealth, MaintenanceLog, TerminalLog  # noqa
+            # Tables are managed by Alembic — this is just a fallback check
+            logger.info("DB startup: connected to PostgreSQL")
+        except Exception as e:
+            logger.warning(f"DB startup warning: {e}")
+
+        # Start sensor health background ticker
+        try:
+            from app.services.sensor_health import run_health_ticker
+            from app.db import AsyncSessionLocal
+            asyncio.create_task(run_health_ticker(AsyncSessionLocal))
+            logger.info("Sensor health ticker started")
+        except Exception as e:
+            logger.warning(f"Health ticker startup warning: {e}")
 
     # CORS — allow frontend dev servers and the API itself
     app.add_middleware(

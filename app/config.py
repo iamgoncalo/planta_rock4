@@ -19,8 +19,8 @@ class Settings(BaseSettings):
     # Auth
     ops_secret: str = "change-me"
 
-    # Database (optional for phase 0)
-    database_url: str = "sqlite+aiosqlite:///./plantaos.db"
+    # Database
+    database_url: str = "postgresql+asyncpg://goncalomelodemagalhaes@localhost/plantaos"
 
     # CORS
     cors_origins: list[str] = [
