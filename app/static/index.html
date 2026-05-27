@@ -774,146 +774,67 @@ var SHOWS=[
 
 // ── SENSORS CATALOG ────────────────────────────────────────
 var SENSORS=[
-  {
-    id:"reed",name:"Reed MC-38",cat:"Contagem cabines",icon:"🚪",
-    price:0.55,unit:"unidade",qty:127,placement:"1 por cabine — dobradiça",
-    protocol:"GPIO → Hub ESP32",range:"0–15mm contacto",precision:99.8,
-    power:"0.33mA passivo",ip:"IP44 (em caixa IP65)",battery_days:null,
-    install_min:2,rgpd:"100% anónimo",available:"Amazon.es · 2-3 dias",
-    pros:["Ultra baixo custo","1M ciclos","Zero drift","Instalação 2min/cabine"],
-    cons:["Só detecta aberto/fechado","Requer hub agregador"],
-    recommended:true,qty_project:127,total_cost:70
+  {id:"ir",name:"IR E18-D80NK",cat:"Contagem entrada/saída",icon:"📡",
+    price:2.50,unit:"unidade",qty_project:32,total_cost:80,
+    protocol:"GPIO → LilyGo ESP32",range:"3–80 cm ajustável",precision:97,
+    power:"30 mA activo",ip:"IP65 nativo",battery_days:null,
+    install_min:15,rgpd:"100% anónimo — contagem agregada",
+    available:"ptrobotics.com · 3 dias",
+    pros:["Bidireccional IN/OUT","IP65 nativo","Resposta rápida 1 ms","Zero dados pessoais"],
+    cons:["Necessita alinhamento preciso","Sensível a sujidade"],
+    recommended:true,note:null
   },
-  {
-    id:"ir",name:"IR E18-D80NK",cat:"Passagem entrada/saída",icon:"📡",
-    price:2.50,unit:"unidade",qty:16,placement:"2 por cluster — entrada e saída",
-    protocol:"GPIO → Hub ESP32",range:"3–80cm ajustável",precision:97,
-    power:"30mA activo",ip:"IP65 nativo",battery_days:null,
-    install_min:15,rgpd:"100% anónimo",available:"ptrobotics.com · 3 dias",
-    pros:["Bidireccional IN/OUT","IP65","Rápido response"],
-    cons:["Necessita alinhamento preciso","Pode ser bloqueado por sujidade"],
-    recommended:true,qty_project:16,total_cost:40
+  {id:"lilygo",name:"LilyGo TTGO T-SIM7080G",cat:"Hub agregador + 4G/NB-IoT",icon:"📶",
+    price:28,unit:"unidade",qty_project:8,total_cost:224,
+    protocol:"MQTT TLS · 4G NB-IoT",range:"cobertura NOS M2M",precision:null,
+    power:"22 mA médio · 10 Ah = 16 dias",ip:"IP65 em caixa",battery_days:16,
+    install_min:30,rgpd:"Só transmite dados agregados — sem MAC, sem ID pessoal",
+    available:"Amazon.es · 3 dias",
+    pros:["4G/NB-IoT dual-mode","Buffer SPIFFS local 273 h","10 Ah = 16 dias autonomia","Agrega até 32 IR"],
+    cons:["Carregamento necessário >16 dias"],
+    recommended:true,note:null
   },
-  {
-    id:"pir",name:"PIR HC-SR501",cat:"Presença zona comum",icon:"👁",
-    price:1.20,unit:"unidade",qty:32,placement:"4 por cluster — esquinas zona comum",
-    protocol:"GPIO → Hub ESP32",range:"3–7m · 120° cone",precision:88,
-    power:"65μA standby",ip:"IP30 (em caixa)",battery_days:null,
-    install_min:5,rgpd:"100% anónimo",available:"Amazon.es · 2 dias",
-    pros:["Muito barato","Valida Reed","Detecta presença geral"],
-    cons:["Menor precisão (88%)","Falsos positivos possíveis"],
-    recommended:true,qty_project:32,total_cost:38
+  {id:"wifi_ap",name:"TP-Link EAP670 WiFi 6E",cat:"Access Point WiFi",icon:"🔗",
+    price:129,unit:"unidade",qty_project:16,total_cost:2064,
+    protocol:"WiFi 6E 802.11ax 6 GHz · PoE",range:"45 m @80 k pax",precision:null,
+    power:"PoE 802.3at",ip:"IP30 (caixa WC)",battery_days:null,
+    install_min:20,rgpd:"Sem armazenamento de MAC — contagem de dispositivos apenas",
+    available:"Worten · Fnac · Amazon.es · 1 dia",
+    pros:["6 GHz menos congestionado","PoE único cabo","Omada mesh auto-healing"],
+    cons:["Requer switch PoE"],
+    recommended:true,note:null
   },
-  {
-    id:"co2",name:"Aranet4 PRO",cat:"Qualidade do ar (CO₂+T+RH)",icon:"💨",
-    price:189,unit:"unidade",qty:8,placement:"1 por cluster — zona central",
-    protocol:"WiFi + Bluetooth",range:"n/a",precision:99,
-    power:"Bateria 2× AA",ip:"IP30",battery_days:365,
-    install_min:5,rgpd:"100% anónimo",available:"Amazon.es · 3 dias",
-    pros:["NDIR CO₂ calibrado","Display e-ink visível","Fácil setup"],
-    cons:["EUR 189/unidade","Bateria a substituir anualmente"],
-    recommended:true,qty_project:8,total_cost:1512
+  {id:"camera",name:"Prosegur Dome Camera",cat:"Câmara ML crowd-count",icon:"🎥",
+    price:0,unit:"serviço",qty_project:8,total_cost:0,
+    protocol:"RTSP → Edge ML",range:"FOV 90°",precision:94,
+    power:"PoE",ip:"IP44",battery_days:null,
+    install_min:20,rgpd:"Edge AI — sem imagem guardada, só contagem agregada",
+    available:"Prosegur contrato existente",
+    pros:["Fornecidas por Prosegur","Edge AI RGPD","Peso de fusão 20%"],
+    cons:["Não substituir sensores físicos","94% precisão em multidão densa"],
+    recommended:true,note:"Peso de fusão 20% — validação, não fonte primária"
   },
-  {
-    id:"co2_diy",name:"SCD41 + ESP32 DIY",cat:"CO₂ low-cost",icon:"🔬",
-    price:22,unit:"unidade",qty:8,placement:"1 por cluster",
-    protocol:"WiFi I2C",range:"n/a",precision:97,
-    power:"250mA WiFi activo",ip:"IP30 (em caixa)",battery_days:null,
-    install_min:120,rgpd:"100% anónimo",available:"Mouser.pt · 5 dias",
-    pros:["EUR 22 vs EUR 189","Mesma precisão SCD41","Totalmente customizável"],
-    cons:["Requer build (2h/unit)","Certificação não garantida"],
-    recommended:false,qty_project:8,total_cost:176
-  },
-  {
-    id:"water",name:"Shelly Plus H&T + Contador",cat:"Água · consumo",icon:"💧",
-    price:29,unit:"unidade",qty:8,placement:"1 por cluster — saída do contador",
-    protocol:"WiFi · HTTP/MQTT",range:"pulse input",precision:99,
-    power:"PoE ou bateria",ip:"IP44",battery_days:null,
-    install_min:10,rgpd:"100% anónimo",available:"Amazon.es · 1 dia",
-    pros:["EUR 29","Sem alteração canalizações","Monitoriza consumo m³"],
-    cons:["Requer acesso ao contador existente"],
-    recommended:true,qty_project:8,total_cost:232
-  },
-  {
-    id:"water_lora",name:"SenseCAP S2101 LoRa Water",cat:"Água · LoRaWAN",icon:"💧",
-    price:149,unit:"unidade",qty:8,placement:"1 por cluster",
-    protocol:"LoRaWAN 868MHz",range:"3000m outdoor",precision:99,
-    power:"Bateria 5 anos",ip:"IP66",battery_days:1825,
-    install_min:15,rgpd:"100% anónimo",available:"seeedstudio.com · 7 dias",
-    pros:["5 anos bateria","IP66","Sem WiFi necessário"],
-    cons:["EUR 149/ud","Requer gateway LoRa"],
-    recommended:false,qty_project:8,total_cost:1192
-  },
-  {
-    id:"people",name:"Milesight VS121-P",cat:"Contador de pessoas WiFi",icon:"👥",
-    price:149,unit:"unidade",qty:8,placement:"1 por cluster — entrada",
-    protocol:"WiFi PoE",range:"3m altura",precision:99.5,
-    power:"PoE 802.3af",ip:"IP40",battery_days:null,
-    install_min:20,rgpd:"Edge AI · sem imagem guardada",available:"Amazon.es · 5 dias",
-    pros:["99.5% precisão","PoE plug-and-play","Edge AI RGPD"],
-    cons:["EUR 149","Necessita PoE switch"],
-    recommended:false,qty_project:8,total_cost:1192
-  },
-  {
-    id:"hub2g",name:"LILYGO T-Call SIM800L",cat:"Hub 2G + agregador",icon:"📶",
-    price:9,unit:"unidade",qty:8,placement:"1 por cluster — caixa IP65",
-    protocol:"2G GSM 900MHz → MQTT TLS",range:"700m real @80kpax",precision:null,
-    power:"22mA médio · bateria 10Ah = 16 dias",ip:"IP65 em caixa",battery_days:16,
-    install_min:30,rgpd:"Só transmite dados agregados",available:"Amazon.es · 3 dias",
-    pros:["EUR 9","Agrega 20 Reed","Buffer SPIFFS 273h","SIM NOS M2M"],
-    cons:["2G (não 4G)","700m real com multidão"],
-    recommended:true,qty_project:8,total_cost:72
-  },
-  {
-    id:"hub4g",name:"LILYGO T-SIM7600E",cat:"Hub 4G LTE",icon:"📶",
-    price:28,unit:"unidade",qty:8,placement:"1 por cluster",
-    protocol:"4G LTE 1800MHz → MQTT TLS",range:"200m real @80kpax",precision:null,
-    power:"150mA activo · bateria 10Ah = 2.8 dias",ip:"IP65 em caixa",battery_days:3,
-    install_min:30,rgpd:"Só dados agregados",available:"Amazon.es · 3 dias",
-    pros:["4G LTE","Mais fiável","Failover automático"],
-    cons:["EUR 28","Bateria 3 dias (sem carregamento)","200m com multidão"],
-    recommended:false,qty_project:8,total_cost:224
-  },
-  {
-    id:"lora_gw",name:"Dragino DLOS8 Gateway",cat:"LoRaWAN gateway",icon:"🗼",
-    price:210,unit:"unidade",qty:2,placement:"2 pontos elevados do recinto",
-    protocol:"LoRaWAN 868MHz EU → MQTT",range:"3000m outdoor",precision:null,
-    power:"PoE",ip:"IP67",battery_days:null,
-    install_min:60,rgpd:"Só metadados",available:"dragino.com · 7 dias",
-    pros:["3km cobertura","IP67","Backup total se WiFi falha"],
-    cons:["EUR 210 cada","7 dias entrega","Requer PoE no ponto de montagem"],
-    recommended:true,qty_project:2,total_cost:420
-  },
-  {
-    id:"wifi_ap",name:"TP-Link EAP670 WiFi 6E",cat:"Access Point WiFi",icon:"📡",
-    price:129,unit:"unidade",qty:16,placement:"1 por cluster + backbone",
-    protocol:"WiFi 6E 802.11ax 6GHz · PoE",range:"45m real @80kpax",precision:null,
-    power:"PoE 802.3at",ip:"IP30 (interior caixa WC)",battery_days:null,
-    install_min:20,rgpd:"n/a",available:"Worten · Fnac · Amazon.es · 1 dia",
-    pros:["6GHz menos congestionado","PoE plug-and-play","Omada mesh auto-healing"],
-    cons:["EUR 129","Necessita switch PoE","30 dias de prazo para ir buscar"],
-    recommended:true,qty_project:16,total_cost:2064
-  },
-  {
-    id:"matter",name:"Matter 1.2 (smart home)",cat:"Protocolo domótico",icon:"🏠",
-    price:0,unit:"protocolo",qty:0,placement:"N/A — festival outdoor",
-    protocol:"Matter over Thread/WiFi",range:"10–30m (Thread)",precision:null,
-    power:"depende do device",ip:"varia",battery_days:null,
-    install_min:0,rgpd:"depende da cloud",available:"Apple/Google/Amazon",
-    pros:["Standard universal","Interoperabilidade"],
-    cons:["Desenhado para domótica indoor","Não adequado para outdoor 80k pax","Latência Thread limitada a 30m","Sem MQTT/LoRaWAN nativo"],
-    recommended:false,qty_project:0,total_cost:0,
-    note:"Matter é inadequado para este contexto. Desenhado para casas inteligentes. Recomendamos LoRaWAN + MQTT TLS."
+  {id:"lora_gw",name:"Dragino DLOS8",cat:"Gateway LoRaWAN backup",icon:"🗼",
+    price:210,unit:"unidade",qty_project:2,total_cost:420,
+    protocol:"LoRaWAN 868 MHz EU868 → MQTT",range:"3000 m outdoor",precision:null,
+    power:"PoE · IP67",ip:"IP67",battery_days:null,
+    install_min:60,rgpd:"Só metadados de rede",
+    available:"dragino.com · 7 dias",
+    pros:["3 km cobertura","IP67 nativo","Fallback total se WiFi/4G falham","40 dB margem com 80 k pax"],
+    cons:["EUR 210 cada","7 dias de entrega"],
+    recommended:true,note:"Backup nível 3 — activado apenas se WiFi + 4G falham em simultâneo"
   }
 ];
 
 // Network config
 var NETWORK={
+  topology:{clusters:8,nodes:66,lilygo:8,ir:32,wifi_ap:16,cameras:8,gateways:2},
+  fusion:{ir:0.50,wifi:0.30,camera:0.20},
   layers:[
-    {name:"WiFi 6E 802.11ax",role:"Primário",range:"45m @80kpax",uptime:"99%",tech:"TP-Link EAP670",cost:2064,units:16,note:"6GHz menos congestionado. PoE único cabo por AP."},
-    {name:"2G GSM NOS M2M",role:"Cellular backup",range:"700m @80kpax",uptime:"99%",tech:"LILYGO SIM800L",cost:88,units:8,note:"SIM M2M IoT. APN m2m.nos.pt. SPIFFS buffer 273h offline."},
-    {name:"LoRaWAN 868MHz",role:"Backup / longa distância",range:"3000m outdoor",uptime:"99.5%",tech:"Dragino DLOS8",cost:420,units:2,note:"Fallback se WiFi + 2G falham. 40dB margem com 80k pax."},
-    {name:"Buffer SPIFFS 4MB",role:"Offline resilience",range:"local",uptime:"99.98%",tech:"ESP32 SPIFFS",cost:0,units:8,note:"273 horas de dados guardados localmente. Zero perda de dados offline."}
+    {name:"IR E18-D80NK",role:"Primário",range:"3–80 cm",uptime:"98%",tech:"GPIO → LilyGo ESP32",cost:80,units:32,note:"Peso de fusão 50%. 4 gates/cluster (2 entrada + 2 saída). IP65 nativo."},
+    {name:"WiFi 6E TP-Link EAP670",role:"Secundário",range:"45 m @80 k pax",uptime:"99%",tech:"802.11ax 6 GHz · PoE",cost:2064,units:16,note:"Peso de fusão 30%. Contagem agregada de dispositivos. Sem MAC guardado."},
+    {name:"Prosegur Edge ML",role:"Validação",range:"FOV 90°",uptime:"95%",tech:"RTSP → Edge AI",cost:0,units:8,note:"Peso de fusão 20%. Zero imagens guardadas. Contagem de silhuetas apenas."},
+    {name:"LoRaWAN 868 MHz",role:"Backup offline",range:"3000 m outdoor",uptime:"99.5%",tech:"Dragino DLOS8",cost:420,units:2,note:"Fallback nível 3. Buffer LilyGo SPIFFS 273 h autónomo antes de activar LoRa."}
   ]
 };
 
@@ -1292,8 +1213,7 @@ function rAdmin(){
       +'<span style="color:#3B82F6">M:'+wc.masc_occ+"/"+wc.masc+'</span>'
       +'<span style="color:#EC4899">F:'+wc.fem_occ+"/"+wc.fem+'</span>'
       +'<span style="color:var(--t3)">↑'+(wc.pax_hora||0)+'/h</span>'
-      +'<span style="color:#3B82F6">'+( wc.water_L_hr||0)+'L/h</span>'
-      +'</div>'
+            +'</div>'
       +'<div style="background:var(--bar-bg);height:3px;border-radius:1px;margin:5px 0"><div style="height:3px;border-radius:1px;background:'+uc+';width:'+wc.util+'%;transition:width .8s"></div></div>'
       +'<div class="am" style="display:flex;justify-content:space-between"><span>'+wc.bat+'V</span><span>'+wc.rssi+'dBm</span><span style="color:'+c+';font-weight:600;text-transform:uppercase;font-size:.58rem">'+wc.status+'</span></div></div>';
   });
@@ -1394,77 +1314,199 @@ function rSch(){
 }
 
 // ── SENSORS PAGE ────────────────────────────────────────────
+var _SEN_HEALTH=null,_SEN_BATTERY=null,_SEN_GW=null;
+
+function _fetchSensorData(cb){
+  var base=window.location.origin;
+  var done=0;
+  function check(){done++;if(done===3&&cb)cb();}
+  fetch(base+'/api/v1/sensors').then(function(r){return r.ok?r.json():null}).then(function(d){_SEN_HEALTH=d;check();}).catch(function(){check();});
+  fetch(base+'/api/v1/sensors/battery').then(function(r){return r.ok?r.json():null}).then(function(d){_SEN_BATTERY=d;check();}).catch(function(){check();});
+  fetch(base+'/api/v1/gateways').then(function(r){return r.ok?r.json():null}).then(function(d){_SEN_GW=d;check();}).catch(function(){check();});
+}
+
 function rSensors(){
   var el=g("sen-content");if(!el)return;
-  var total_cost=SENSORS.reduce(function(a,s){return a+s.total_cost},0);
-  var total_qty=SENSORS.reduce(function(a,s){return a+s.qty_project},0);
+  _fetchSensorData(function(){_renderSensors(el);});
+  _renderSensors(el); // render immediately with any cached data
+}
 
-  // Summary
-  var h='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">';
-  [{v:total_qty+"",l:"sensores totais"},{v:"EUR "+total_cost,l:"custo hardware"},{v:"99.96%",l:"uptime 4 dias"},{v:"273h",l:"buffer offline"}].forEach(function(m){
-    h+='<div style="background:var(--dp-bg);border:1px solid var(--bd);border-radius:7px;padding:14px;text-align:center"><div style="font-family:var(--fh);font-size:1.5rem;font-weight:600;color:var(--gl)">'+m.v+'</div><div style="font-size:.52rem;color:var(--t3);text-transform:uppercase;letter-spacing:.08em;margin-top:3px">'+m.l+'</div></div>';
+function _dotHtml(ok,label){
+  var col=ok?"#6FAF82":"#C25A1A";
+  return '<span style="display:inline-flex;align-items:center;gap:4px;font-size:.62rem;color:'+col+'">'
+    +'<span style="width:7px;height:7px;border-radius:50%;background:'+col+';flex-shrink:0"></span>'+label+'</span>';
+}
+
+function _barHtml(pct,col){
+  col=col||"#6FAF82";
+  return '<div style="height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:3px">'
+    +'<div style="height:100%;width:'+Math.min(100,pct)+'%;background:'+col+';border-radius:3px;transition:width 1s ease"></div>'
+    +'</div>';
+}
+
+function _renderSensors(el){
+  var h='';
+
+  // ── 1. TOPOLOGY SUMMARY STRIP ──────────────────────────────
+  var topo=NETWORK.topology;
+  h+='<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:20px">';
+  [{v:topo.nodes,l:"nós totais"},{v:topo.lilygo,l:"LilyGo hubs"},{v:topo.ir,l:"IR E18"},{v:topo.wifi_ap,l:"WiFi APs"},{v:topo.cameras,l:"câmaras"},{v:topo.gateways,l:"gateways LoRa"}].forEach(function(m){
+    h+='<div style="background:var(--dp-bg);border:1px solid var(--bd);border-radius:7px;padding:10px;text-align:center">'
+      +'<div style="font-family:var(--fh);font-size:1.4rem;font-weight:600;color:var(--gl)">'+m.v+'</div>'
+      +'<div style="font-size:.56rem;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-top:2px">'+m.l+'</div>'
+      +'</div>';
   });
   h+='</div>';
 
-  // Network layers
-  h+='<div style="margin-bottom:18px"><div style="font-family:var(--fh);font-size:1.2rem;font-weight:300;color:var(--heading);margin-bottom:10px">Arquitectura de rede — 4 camadas</div>'
-    +'<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">';
-  NETWORK.layers.forEach(function(l,i){
-    var colors=["var(--gl)","#3B82F6","#8B5CF6","#F59E0B"];
-    h+='<div style="background:var(--dp-bg);border:1px solid var(--bd);border-left:3px solid '+colors[i]+';border-radius:6px;padding:11px">'
-      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
-      +'<div style="font-weight:600;font-size:.78rem;color:var(--heading)">'+l.name+'</div>'
-      +'<div style="font-size:.56rem;background:'+colors[i]+'22;color:'+colors[i]+';padding:2px 6px;border-radius:5px;font-family:var(--fm)">'+l.role+'</div>'
+  // ── 2. FUSION WEIGHTS ──────────────────────────────────────
+  var fw=NETWORK.fusion;
+  h+='<div style="background:var(--dp-bg);border:1px solid var(--bd);border-radius:8px;padding:14px;margin-bottom:20px">'
+    +'<div style="font-family:var(--fh);font-size:1rem;font-weight:300;color:var(--heading);margin-bottom:10px">Pesos de fusão de sensores</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">';
+  [{k:"IR E18-D80NK",v:fw.ir,col:"#6FAF82"},{k:"WiFi AP",v:fw.wifi,col:"#3B82F6"},{k:"Câmara ML",v:fw.camera,col:"#8B5CF6"}].forEach(function(x){
+    h+='<div style="text-align:center">'
+      +'<div style="font-family:var(--fh);font-size:1.6rem;font-weight:600;color:'+x.col+'">'+Math.round(x.v*100)+'%</div>'
+      +'<div style="font-size:.65rem;color:var(--t2);margin-bottom:4px">'+x.k+'</div>'
+      +_barHtml(x.v*100,x.col)
+      +'</div>';
+  });
+  h+='</div>'
+    +'<div style="font-size:.58rem;color:var(--t3);margin-top:8px">F=P/D é uma hipótese em teste — não afirmada como lei estabelecida.</div>'
+    +'</div>';
+
+  // ── 3. CLUSTER HEALTH GRID ─────────────────────────────────
+  var clusters=["WC-01","WC-02","WC-03","WC-04","WC-05","WC-06","WC-07","WC-08"];
+  var unisex={"WC-05":true,"WC-06":true};
+  h+='<div style="font-family:var(--fh);font-size:1.1rem;font-weight:300;color:var(--heading);margin-bottom:10px">Saúde em tempo real — '+clusters.length+' clusters</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:20px">';
+  clusters.forEach(function(cid){
+    var hd=null;
+    if(_SEN_HEALTH){
+      for(var i=0;i<_SEN_HEALTH.length;i++){if(_SEN_HEALTH[i].cluster_id===cid){hd=_SEN_HEALTH[i];break;}}
+    }
+    var online=hd?hd.lilygo_online:false;
+    var ir=hd?hd.ir_entry_online:false;
+    var wifi=hd?hd.wifi_online:false;
+    var cam=hd?hd.camera_online:false;
+    var conf=hd?Math.round(hd.confidence*100):0;
+    var issues=hd&&hd.issues?hd.issues:[];
+    var borderCol=online?"var(--bd)":"rgba(194,90,26,.35)";
+    h+='<div style="background:var(--dp-bg);border:1.5px solid '+borderCol+';border-radius:8px;padding:12px">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+      +'<span style="font-weight:700;font-size:.85rem;color:var(--heading)">'+cid+(unisex[cid]?' <span style="font-size:.52rem;color:#8B5CF6;background:rgba(139,92,246,.12);padding:1px 5px;border-radius:4px">U</span>':'')+'</span>'
+      +'<span style="font-family:var(--fm);font-size:.62rem;color:'+(conf>70?"#6FAF82":conf>40?"#BA7517":"#C25A1A")+'">'+(_SEN_HEALTH?conf+'% conf':'—')+'</span>'
       +'</div>'
-      +'<div style="font-size:.68rem;color:var(--t2);margin-bottom:3px">'+l.tech+' · '+l.units+' unidades · EUR '+l.cost+'</div>'
-      +'<div style="font-size:.64rem;color:var(--t3)">Alcance: '+l.range+' · Uptime: '+l.uptime+'</div>'
-      +'<div style="font-size:.62rem;color:var(--t2);margin-top:4px">'+l.note+'</div>'
+      +'<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px">'
+      +_dotHtml(online,'LilyGo')
+      +_dotHtml(ir,'IR')
+      +_dotHtml(wifi,'WiFi')
+      +_dotHtml(cam,'CAM')
+      +'</div>';
+    if(hd){h+=_barHtml(conf,conf>70?"#6FAF82":conf>40?"#BA7517":"#C25A1A");}
+    if(issues.length>0){
+      h+='<div style="margin-top:5px">';
+      issues.forEach(function(iss){h+='<div style="font-size:.56rem;color:#C25A1A;background:rgba(194,90,26,.1);border-radius:3px;padding:2px 5px;margin-top:2px">⚠ '+iss+'</div>';});
+      h+='</div>';
+    }
+    if(!_SEN_HEALTH){h+='<div style="font-size:.58rem;color:var(--t3);margin-top:4px">A carregar dados…</div>';}
+    h+='</div>';
+  });
+  h+='</div>';
+
+  // ── 4. BATTERY STATUS ──────────────────────────────────────
+  h+='<div style="background:var(--dp-bg);border:1px solid var(--bd);border-radius:8px;padding:14px;margin-bottom:20px">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+    +'<div style="font-family:var(--fh);font-size:1rem;font-weight:300;color:var(--heading)">Bateria LilyGo — 8 hubs</div>'
+    +'<div style="font-size:.58rem;color:var(--t3)">10 Ah · 22 mA · 16 dias</div>'
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">';
+  clusters.forEach(function(cid){
+    var bat=null;
+    if(_SEN_BATTERY){
+      for(var i=0;i<_SEN_BATTERY.length;i++){if(_SEN_BATTERY[i].cluster_id===cid){bat=_SEN_BATTERY[i];break;}}
+    }
+    var days=bat?bat.estimated_days_remaining:16;
+    var pct=Math.min(100,(days/16)*100);
+    var col=pct>50?"#6FAF82":pct>20?"#BA7517":"#C25A1A";
+    h+='<div style="text-align:center">'
+      +'<div style="font-size:.7rem;font-weight:600;color:var(--heading)">'+cid.replace("WC-","")+'</div>'
+      +'<div style="font-family:var(--fm);font-size:.82rem;color:'+col+'">'+days+'d</div>'
+      +_barHtml(pct,col)
       +'</div>';
   });
   h+='</div></div>';
 
-  // Sensor cards
-  h+='<div style="font-family:var(--fh);font-size:1.2rem;font-weight:300;color:var(--heading);margin-bottom:10px">Catálogo completo — '+SENSORS.length+' opções avaliadas</div>';
+  // ── 5. GATEWAYS ────────────────────────────────────────────
+  h+='<div style="background:var(--dp-bg);border:1px solid var(--bd);border-radius:8px;padding:14px;margin-bottom:20px">'
+    +'<div style="font-family:var(--fh);font-size:1rem;font-weight:300;color:var(--heading);margin-bottom:10px">Gateways LoRaWAN — 2 × Dragino DLOS8</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">';
+  var gwList=_SEN_GW||[{gateway_id:"gw_north",model:"Dragino DLOS8",status:"online",connected_hubs:["WC-01","WC-02","WC-07"],packet_loss_pct:0},{gateway_id:"gw_south",model:"Dragino DLOS8",status:"online",connected_hubs:["WC-03","WC-04","WC-05","WC-06","WC-08"],packet_loss_pct:0}];
+  gwList.forEach(function(gw){
+    var online=gw.status==="online";
+    var label=gw.gateway_id==="gw_north"?"Gateway Norte":"Gateway Sul";
+    h+='<div style="border:1px solid var(--bd);border-radius:7px;padding:11px">'
+      +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px">'
+      +'<span style="width:8px;height:8px;border-radius:50%;background:'+(online?"#6FAF82":"#C25A1A")+';flex-shrink:0"></span>'
+      +'<span style="font-weight:600;font-size:.78rem;color:var(--heading)">'+label+'</span>'
+      +'</div>'
+      +'<div style="font-size:.62rem;color:var(--t3)">'+gw.model+'</div>'
+      +'<div style="font-size:.62rem;color:var(--t2);margin-top:4px">868 MHz · 3 km outdoor · IP67</div>'
+      +'<div style="font-size:.58rem;color:var(--t3);margin-top:3px">Hubs: '+(gw.connected_hubs||[]).join(", ")+'</div>'
+      +'<div style="font-size:.58rem;color:var(--t3)">Perda pacotes: '+(gw.packet_loss_pct||0).toFixed(1)+'%</div>'
+      +'</div>';
+  });
+  h+='</div></div>';
+
+  // ── 6. ARCHITECTURE LAYERS ─────────────────────────────────
+  h+='<div style="font-family:var(--fh);font-size:1.1rem;font-weight:300;color:var(--heading);margin-bottom:10px">Arquitectura de rede — 4 camadas</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:20px">';
+  var layerColors=["#6FAF82","#3B82F6","#8B5CF6","#F59E0B"];
+  NETWORK.layers.forEach(function(l,i){
+    h+='<div style="background:var(--dp-bg);border:1px solid var(--bd);border-left:3px solid '+layerColors[i]+';border-radius:6px;padding:11px">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
+      +'<div style="font-weight:600;font-size:.75rem;color:var(--heading)">'+l.name+'</div>'
+      +'<div style="font-size:.52rem;background:'+layerColors[i]+'22;color:'+layerColors[i]+';padding:2px 6px;border-radius:4px;font-family:var(--fm)">'+l.role+'</div>'
+      +'</div>'
+      +'<div style="font-size:.65rem;color:var(--t2);margin-bottom:3px">'+l.tech+' · '+l.units+' unidades · EUR '+l.cost+'</div>'
+      +'<div style="font-size:.6rem;color:var(--t3)">Alcance: '+l.range+' · Uptime: '+l.uptime+'</div>'
+      +'<div style="font-size:.58rem;color:var(--t2);margin-top:4px">'+l.note+'</div>'
+      +'</div>';
+  });
+  h+='</div>';
+
+  // ── 7. SENSOR CATALOGUE ────────────────────────────────────
+  h+='<div style="font-family:var(--fh);font-size:1.1rem;font-weight:300;color:var(--heading);margin-bottom:10px">Hardware implantado — '+SENSORS.length+' tipos</div>';
   h+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:9px;margin-bottom:16px">';
   SENSORS.forEach(function(sen){
     var border=sen.recommended?"var(--gl)":"var(--bd)";
-    h+='<div style="background:var(--dp-bg);border:1px solid '+border+';border-radius:8px;padding:16px;position:relative">'
-      +(sen.recommended?'<div style="position:absolute;top:10px;right:10px;font-size:.5rem;background:rgba(111,175,130,.15);color:var(--gl);padding:2px 6px;border-radius:5px;font-family:var(--fm);font-weight:700">RECOMENDADO</div>':"")
+    h+='<div style="background:var(--dp-bg);border:1px solid '+border+';border-radius:8px;padding:14px;position:relative">'
+      +(sen.recommended?'<div style="position:absolute;top:9px;right:9px;font-size:.48rem;background:rgba(111,175,130,.15);color:var(--gl);padding:2px 6px;border-radius:4px;font-family:var(--fm)">IMPLANTADO</div>':'')
       +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'
-      +'<span style="font-size:1.4rem">'+sen.icon+'</span>'
-      +'<div><div style="font-size:.82rem;font-weight:600;color:var(--heading)">'+sen.name+'</div>'
-      +'<div style="font-size:.6rem;color:var(--t3)">'+sen.cat+'</div></div>'
+      +'<span style="font-size:1.3rem">'+sen.icon+'</span>'
+      +'<div><div style="font-size:.8rem;font-weight:600;color:var(--heading)">'+sen.name+'</div>'
+      +'<div style="font-size:.58rem;color:var(--t3)">'+sen.cat+'</div></div>'
       +'</div>'
-      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:8px;font-size:.64rem">'
-      +'<div style="color:var(--t3)">Preço</div><div style="font-family:var(--fm);color:var(--gl);font-weight:600">EUR '+sen.price+'/'+sen.unit+'</div>'
-      +'<div style="color:var(--t3)">Qtd. projeto</div><div style="font-family:var(--fm)">'+sen.qty_project+(sen.qty_project>0?" × = EUR "+sen.total_cost:"")+'</div>'
-      +'<div style="color:var(--t3)">Precisão</div><div style="font-family:var(--fm);color:'+(sen.precision>95?"var(--verde)":sen.precision>85?"var(--amb)":"var(--red)")+'">'+(sen.precision?sen.precision+"%":"—")+'</div>'
-      +'<div style="color:var(--t3)">Protocolo</div><div style="font-family:var(--fm);font-size:.58rem">'+sen.protocol+'</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;margin-bottom:7px;font-size:.62rem">'
+      +'<div style="color:var(--t3)">Qtd.</div><div style="font-family:var(--fm);color:var(--gl);font-weight:600">'+sen.qty_project+' unidades</div>'
+      +'<div style="color:var(--t3)">Protocolo</div><div style="font-family:var(--fm);font-size:.56rem">'+sen.protocol+'</div>'
       +'<div style="color:var(--t3)">IP</div><div style="font-family:var(--fm)">'+sen.ip+'</div>'
-      +'<div style="color:var(--t3)">Bateria</div><div style="font-family:var(--fm)">'+(sen.battery_days?sen.battery_days+" dias":"PoE/Rede")+'</div>'
-      +'<div style="color:var(--t3)">Instalação</div><div style="font-family:var(--fm)">'+(sen.install_min>0?sen.install_min+"min/unit":"—")+'</div>'
-      +'<div style="color:var(--t3)">RGPD</div><div style="color:var(--verde);font-size:.6rem">'+sen.rgpd+'</div>'
+      +'<div style="color:var(--t3)">Autonomia</div><div style="font-family:var(--fm)">'+(sen.battery_days?sen.battery_days+" dias":"PoE/Rede")+'</div>'
+      +'<div style="color:var(--t3)">RGPD</div><div style="color:var(--verde);font-size:.58rem">'+sen.rgpd+'</div>'
       +'</div>'
-      +'<div style="font-size:.62rem;color:var(--t2);margin-bottom:5px">📍 '+sen.placement+'</div>'
-      +(sen.note?'<div style="font-size:.6rem;color:var(--amb);background:rgba(186,117,23,.08);border:1px solid rgba(186,117,23,.2);border-radius:4px;padding:5px;margin-bottom:5px">⚠ '+sen.note+'</div>':"")
+      +(sen.note?'<div style="font-size:.57rem;color:var(--amb);background:rgba(186,117,23,.08);border:1px solid rgba(186,117,23,.2);border-radius:4px;padding:5px;margin-bottom:6px">⚠ '+sen.note+'</div>':'')
       +'<div style="display:flex;flex-wrap:wrap;gap:3px">'
-      +sen.pros.map(function(p){return'<span style="font-size:.54rem;background:rgba(111,175,130,.1);color:var(--gl);padding:2px 5px;border-radius:4px">✓ '+p+'</span>'}).join("")
-      +sen.cons.map(function(c){return'<span style="font-size:.54rem;background:rgba(226,75,74,.08);color:#F87171;padding:2px 5px;border-radius:4px">✗ '+c+'</span>'}).join("")
+      +sen.pros.map(function(p){return'<span style="font-size:.52rem;background:rgba(111,175,130,.1);color:var(--gl);padding:2px 5px;border-radius:4px">✓ '+p+'</span>';}).join("")
+      +sen.cons.map(function(c){return'<span style="font-size:.52rem;background:rgba(226,75,74,.06);color:#F87171;padding:2px 5px;border-radius:4px">✗ '+c+'</span>';}).join("")
       +'</div></div>';
   });
   h+='</div>';
 
-  // Recommended bill of materials
-  var rec=SENSORS.filter(function(s){return s.recommended&&s.qty_project>0});
-  var rec_total=rec.reduce(function(a,s){return a+s.total_cost},0);
-  h+='<div style="background:var(--dp-bg);border:1px solid var(--bd);border-radius:8px;padding:16px;margin-bottom:16px">'
-    +'<div style="font-family:var(--fh);font-size:1.1rem;font-weight:300;color:var(--heading);margin-bottom:10px">Bill of Materials — configuração recomendada</div>'
-    +'<table style="width:100%;font-size:.7rem;border-collapse:collapse">'
-    +'<thead><tr style="border-bottom:1px solid var(--bd);color:var(--t3);font-size:.6rem"><th style="text-align:left;padding:5px 4px;font-weight:500">Sensor</th><th style="text-align:left;padding:5px 4px;font-weight:500">Função</th><th style="text-align:right;padding:5px 4px;font-weight:500">Qtd.</th><th style="text-align:right;padding:5px 4px;font-weight:500">Unit.</th><th style="text-align:right;padding:5px 4px;font-weight:500">Total</th></tr></thead><tbody>';
-  rec.forEach(function(s){
-    h+='<tr style="border-bottom:1px solid var(--bd)"><td style="padding:5px 4px;color:var(--t)">'+s.icon+' '+s.name+'</td><td style="padding:5px 4px;color:var(--t2);font-size:.62rem">'+s.cat+'</td><td style="text-align:right;padding:5px 4px;font-family:var(--fm)">'+s.qty_project+'</td><td style="text-align:right;padding:5px 4px;font-family:var(--fm);color:var(--gl)">EUR '+s.price+'</td><td style="text-align:right;padding:5px 4px;font-family:var(--fm);color:var(--gl);font-weight:600">EUR '+s.total_cost+'</td></tr>';
-  });
-  h+='</tbody><tfoot><tr style="border-top:2px solid var(--bd)"><td colspan="4" style="padding:8px 4px;font-weight:600;color:var(--heading)">TOTAL HARDWARE</td><td style="text-align:right;padding:8px 4px;font-family:var(--fh);font-size:1.2rem;color:var(--gl);font-weight:700">EUR '+rec_total+'</td></tr></tfoot></table></div>';
+  // ── 8. RGPD box ────────────────────────────────────────────
+  h+='<div style="background:rgba(111,175,130,.06);border:1px solid rgba(111,175,130,.2);border-radius:8px;padding:14px;margin-bottom:16px">'
+    +'<div style="font-weight:600;font-size:.75rem;color:var(--gl);margin-bottom:5px">RGPD por design</div>'
+    +'<div style="font-size:.64rem;color:var(--t2);line-height:1.6">'
+    +'Contagens agregadas apenas · Sem armazenamento de MAC · Sem identificação individual · Sem telemetria GPS recorrente · Sessões anónimas · Conforme RGPD art. 25'
+    +'</div></div>';
 
   el.innerHTML=h;
 }
