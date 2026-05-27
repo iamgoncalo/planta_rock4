@@ -66,6 +66,14 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.warning(f"Health ticker startup warning: {e}")
 
+        # Start auto-tick (avança o simulador para que os valores variem)
+        try:
+            from app.services.auto_tick import auto_tick_loop
+            asyncio.create_task(auto_tick_loop())
+            logger.info("Auto-tick loop started")
+        except Exception as e:
+            logger.warning(f"Auto-tick startup warning: {e}")
+
         # Start SCOR/Sensaway publisher (publica para o André)
         try:
             from app.services.scor_publisher import publisher_loop
