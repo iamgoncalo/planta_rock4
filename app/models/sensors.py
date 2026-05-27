@@ -85,3 +85,67 @@ class DeviceHealth(BaseModel):
     last_seen_ts: Optional[float] = None
     uptime_s: Optional[float] = None
     packet_status: Optional[str] = None
+
+
+class SensorNode(BaseModel):
+    id: str
+    type: str
+    model: str
+    cluster_id: Optional[str] = None
+    section_id: Optional[str] = None
+    direction: Optional[str] = None
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    hub_id: Optional[str] = None
+    gateway_id: Optional[str] = None
+    status: Literal["online", "degraded", "offline"] = "online"
+    last_seen_ts: Optional[float] = None
+
+
+class GatewayStatus(BaseModel):
+    gateway_id: str
+    model: str
+    lat: float
+    lon: float
+    status: Literal["online", "degraded", "offline"]
+    last_seen_ts: float
+    connected_hubs: list[str]
+    packet_loss_pct: float
+
+
+class BatteryReport(BaseModel):
+    hub_id: str
+    cluster_id: str
+    battery_mah: int
+    draw_ma: int
+    estimated_days_remaining: float
+    last_seen_ts: float
+    status: Literal["ok", "low", "critical"]
+
+
+class CoverageFeature(BaseModel):
+    sensor_id: str
+    sensor_type: str
+    cluster_id: Optional[str] = None
+    lat: float
+    lon: float
+    radius_m: int
+    status: str
+
+
+class CoverageGeoJSON(BaseModel):
+    type: str
+    features: list[CoverageFeature]
+
+
+class MaintenanceItem(BaseModel):
+    cluster_id: str
+    hub_installed: bool
+    ir_count_expected: int
+    ir_count_installed: int
+    wifi_ap_count_expected: int
+    wifi_ap_count_installed: int
+    camera_count_expected: int
+    camera_count_installed: int
+    last_inspection_ts: Optional[float] = None
+    notes: str

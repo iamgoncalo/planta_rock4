@@ -12,3 +12,4 @@ venv/
 htmlcov/
 dist/
 build/
+node_modules/
