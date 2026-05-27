@@ -66,6 +66,14 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.warning(f"Health ticker startup warning: {e}")
 
+        # Start SCOR/Sensaway publisher (publica para o André)
+        try:
+            from app.services.scor_publisher import publisher_loop
+            asyncio.create_task(publisher_loop())
+            logger.info("SCOR publisher started")
+        except Exception as e:
+            logger.warning(f"SCOR publisher startup warning: {e}")
+
     # CORS — allow frontend dev servers and the API itself
     app.add_middleware(
         CORSMiddleware,
