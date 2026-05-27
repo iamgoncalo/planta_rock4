@@ -3,16 +3,19 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   api,
-  aggregate,
+  aggregateClusters,
   CLUSTERS,
-  type ChatMessage,
   type ClusterLive,
 } from '@/lib/v2-api';
 
-interface DisplayMessage extends ChatMessage {
+interface DisplayMessage {
+  role: 'user' | 'assistant';
+  content: string;
   ts: number;
   pending?: boolean;
   error?: boolean;
+  grounded?: boolean;
+  liveData?: boolean;
 }
 
 const SUGGESTIONS = [
@@ -37,14 +40,14 @@ export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Live cluster context
+  // Contexto live a cada 15s a partir de /api/v1/clusters
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
       try {
-        const s = await api.state();
+        const r = await api.clusters();
         if (cancelled) return;
-        setClusters(aggregate(s.sections ?? []));
+        setClusters(aggregateClusters(r.clusters ?? []));
         setContextOk(true);
       } catch {
         if (!cancelled) setContextOk(false);
@@ -58,7 +61,6 @@ export default function ChatPage() {
     };
   }, []);
 
-  // Auto-scroll
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -85,28 +87,28 @@ export default function ChatPage() {
     setSending(true);
 
     try {
-      const history: ChatMessage[] = [
-        ...messages
-          .filter((m) => !m.pending && !m.error)
-          .map(({ role, content }) => ({ role, content })),
-        { role: 'user', content: trimmed },
-      ];
-      const reply = await api.chat(history);
+      const reply = await api.chat(trimmed);
       setMessages((prev) =>
         prev.map((m) =>
           m.ts === pendingMsg.ts
-            ? { role: 'assistant', content: reply.reply, ts: m.ts }
+            ? {
+                role: 'assistant',
+                content: reply.reply,
+                ts: m.ts,
+                grounded: reply.grounded,
+                liveData: reply.live_data_available,
+              }
             : m,
         ),
       );
-    } catch (err) {
+    } catch {
       setMessages((prev) =>
         prev.map((m) =>
           m.ts === pendingMsg.ts
             ? {
                 role: 'assistant',
                 content:
-                  'Não consegui obter resposta. O serviço Gemini pode estar offline ou em rate-limit. Tenta de novo em alguns segundos.',
+                  'Não consegui obter resposta. O serviço Gemini pode estar offline ou em rate-limit. Tenta novamente em alguns segundos.',
                 ts: m.ts,
                 error: true,
               }
@@ -139,7 +141,7 @@ export default function ChatPage() {
         background: 'var(--surface)',
       }}
     >
-      {/* ============ CHAT COLUMN ============ */}
+      {/* CHAT COLUMN */}
       <section
         style={{
           display: 'flex',
@@ -149,7 +151,6 @@ export default function ChatPage() {
           minHeight: 0,
         }}
       >
-        {/* Header */}
         <div
           style={{
             padding: '18px 28px 14px',
@@ -205,7 +206,6 @@ export default function ChatPage() {
           </span>
         </div>
 
-        {/* Messages */}
         <div
           ref={scrollRef}
           style={{
@@ -223,7 +223,6 @@ export default function ChatPage() {
           ))}
         </div>
 
-        {/* Suggestions (only when conversation is short) */}
         {messages.length <= 1 && (
           <div
             style={{
@@ -239,10 +238,7 @@ export default function ChatPage() {
                 onClick={() => send(s)}
                 disabled={sending}
                 className="btn btn-outline btn-sm"
-                style={{
-                  fontWeight: 500,
-                  background: 'var(--card)',
-                }}
+                style={{ fontWeight: 500, background: 'var(--card)' }}
               >
                 {s}
               </button>
@@ -250,7 +246,6 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* Input */}
         <div
           style={{
             padding: '14px 28px 20px',
@@ -267,7 +262,6 @@ export default function ChatPage() {
               border: '1.5px solid var(--border)',
               borderRadius: 12,
               padding: '10px 12px',
-              transition: 'border-color 0.15s',
             }}
           >
             <textarea
@@ -275,7 +269,7 @@ export default function ChatPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKey}
-              placeholder="Pergunta sobre fluxos, filas, ou onde está o pico…"
+              placeholder="Pergunta sobre fluxos, filas, ou onde está o pico..."
               rows={1}
               disabled={sending}
               style={{
@@ -318,7 +312,7 @@ export default function ChatPage() {
         </div>
       </section>
 
-      {/* ============ CONTEXT COLUMN ============ */}
+      {/* CONTEXT COLUMN */}
       <aside
         style={{
           padding: '22px 22px 32px',
@@ -338,10 +332,10 @@ export default function ChatPage() {
           }}
         >
           O modelo recebe o estado destes 8 clusters em cada pergunta. Refresh a
-          cada 15 s.
+          cada 15 s. Quando a resposta tem o badge ✓ grounded, foi construída a
+          partir destes dados.
         </p>
 
-        {/* Summary stats */}
         <div
           style={{
             background: 'var(--card)',
@@ -368,7 +362,6 @@ export default function ChatPage() {
           <Stat label="Clusters" value="8" />
         </div>
 
-        {/* Cluster list */}
         <div
           style={{
             fontSize: 10,
@@ -382,20 +375,23 @@ export default function ChatPage() {
           Estado por cluster
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {(clusters.length ? clusters : CLUSTERS.map((m) => ({
-            meta: m,
-            ocupacao: 0,
-            status: 'ok' as const,
-            pessoas: 0,
-            filaTotal: 0,
-            esperaMin: 0,
-            entradas: 0,
-            saidas: 0,
-            confianca: 0.5,
-            simulated: true,
-            homens: null,
-            mulheres: null,
-          }))).map((c) => {
+          {(clusters.length
+            ? clusters
+            : CLUSTERS.map((m) => ({
+                meta: m,
+                ocupacao: 0,
+                status: 'ok' as const,
+                pessoas: 0,
+                filaTotal: 0,
+                esperaMin: 0,
+                entradas: 0,
+                saidas: 0,
+                confianca: 0.5,
+                simulated: true,
+                homens: null,
+                mulheres: null,
+              }))
+          ).map((c) => {
             const col =
               c.status === 'critical'
                 ? 'var(--critical)'
@@ -416,13 +412,7 @@ export default function ChatPage() {
                   fontSize: 11,
                 }}
               >
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 8,
-                  }}
-                >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                   <span
                     style={{
                       width: 7,
@@ -434,9 +424,7 @@ export default function ChatPage() {
                   <span className="mono" style={{ fontWeight: 600, color: 'var(--text)' }}>
                     {c.meta.id.toUpperCase()}
                   </span>
-                  <span style={{ color: 'var(--faint)', fontSize: 10 }}>
-                    {c.meta.zone}
-                  </span>
+                  <span style={{ color: 'var(--faint)', fontSize: 10 }}>{c.meta.zone}</span>
                 </span>
                 <span className="mono" style={{ color: 'var(--text)', fontWeight: 600 }}>
                   {c.ocupacao}%
@@ -457,8 +445,8 @@ export default function ChatPage() {
             lineHeight: 1.6,
           }}
         >
-          O modelo nunca inventa dados. Se a métrica não estiver presente no
-          contexto, responde explicitamente "sem dados disponíveis".
+          O modelo nunca inventa dados. Se a métrica não estiver no contexto,
+          responde "sem dados disponíveis".
         </div>
       </aside>
     </div>
@@ -517,9 +505,18 @@ function Message({ m }: { m: DisplayMessage }) {
               marginTop: 8,
               letterSpacing: '0.08em',
               textTransform: 'uppercase',
+              display: 'flex',
+              gap: 10,
+              alignItems: 'center',
             }}
           >
-            Gemini 2.5 Flash
+            <span>Gemini 2.5 Flash</span>
+            {m.grounded && (
+              <span style={{ color: 'var(--green)', fontWeight: 700 }}>✓ grounded</span>
+            )}
+            {m.liveData && (
+              <span style={{ color: 'var(--green)', fontWeight: 700 }}>● live</span>
+            )}
           </div>
         )}
       </div>
@@ -536,7 +533,7 @@ function Dot({ delay }: { delay: number }) {
         borderRadius: '50%',
         background: 'currentColor',
         opacity: 0.6,
-        animation: `pulse 1.2s ease-in-out infinite`,
+        animation: 'pulse 1.2s ease-in-out infinite',
         animationDelay: `${delay}s`,
         display: 'inline-block',
       }}
@@ -544,7 +541,15 @@ function Dot({ delay }: { delay: number }) {
   );
 }
 
-function Stat({ label, value, col = 'var(--ink)' }: { label: string; value: string; col?: string }) {
+function Stat({
+  label,
+  value,
+  col = 'var(--ink)',
+}: {
+  label: string;
+  value: string;
+  col?: string;
+}) {
   return (
     <div>
       <div

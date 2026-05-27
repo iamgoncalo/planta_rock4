@@ -1,11 +1,46 @@
 'use client';
 
-import { useState } from 'react';
-import { SHOWS, type Show } from '@/lib/v2-api';
+import { useEffect, useState } from 'react';
+import {
+  api,
+  groupShowsByDay,
+  type BackendShow,
+  type ShowDay,
+  type DisplayShow,
+} from '@/lib/v2-api';
+
+const REFRESH_MS = 60_000;
 
 export default function ShowsPage() {
+  const [raw, setRaw] = useState<BackendShow[]>([]);
   const [selectedDay, setSelectedDay] = useState(0);
-  const show = SHOWS[selectedDay];
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await api.shows();
+        if (cancelled) return;
+        setRaw(r.shows ?? []);
+        setError(null);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'erro');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    tick();
+    const iv = setInterval(tick, REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+  }, []);
+
+  const days: ShowDay[] = groupShowsByDay(raw);
+  const day = days[selectedDay];
 
   return (
     <div style={{ padding: '40px 32px 48px', maxWidth: 1280, margin: '0 auto' }}>
@@ -21,110 +56,128 @@ export default function ShowsPage() {
             marginBottom: 8,
           }}
         >
-          Quatro dias.{' '}
+          {days.length || 4} dias.{' '}
           <em style={{ fontStyle: 'italic', color: 'var(--muted)' }}>
-            Quatro picos.
+            {days.length || 4} picos.
           </em>{' '}
           <strong style={{ fontWeight: 700 }}>Cada um diferente.</strong>
         </h1>
-        <p
-          style={{
-            fontSize: 14,
-            color: 'var(--muted)',
-            maxWidth: 720,
-            lineHeight: 1.65,
-          }}
-        >
-          Cada headliner gera um padrão diferente de utilização dos clusters WC.
-          Selecciona um dia para ver a previsão de carga hora-a-hora e o factor
-          de surge esperado no fim do show.
+        <p style={{ fontSize: 14, color: 'var(--muted)', maxWidth: 720, lineHeight: 1.65 }}>
+          O programa é puxado em tempo real de /api/v1/shows. Cada show traz o
+          surge esperado nos WC para a hora seguinte ao fim do espectáculo,
+          calculado pelo backend.
         </p>
       </div>
 
-      {/* DAY TABS */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-          gap: 8,
-          marginBottom: 24,
-        }}
-      >
-        {SHOWS.map((s, i) => {
-          const active = i === selectedDay;
-          return (
-            <button
-              key={s.id}
-              onClick={() => setSelectedDay(i)}
+      {loading && !raw.length && (
+        <div style={{ padding: 20, color: 'var(--muted)' }}>A carregar shows...</div>
+      )}
+      {error && (
+        <div
+          style={{
+            background: 'var(--critical-bg)',
+            border: '1px solid var(--critical)',
+            borderRadius: 8,
+            padding: '12px 16px',
+            color: 'var(--critical)',
+            fontSize: 13,
+            marginBottom: 16,
+          }}
+        >
+          Erro a obter shows: {error}
+        </div>
+      )}
+
+      {days.length > 0 && (
+        <>
+          {/* DAY TABS */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: `repeat(auto-fit, minmax(${Math.max(180, 800 / days.length)}px, 1fr))`,
+              gap: 8,
+              marginBottom: 24,
+            }}
+          >
+            {days.map((d, i) => {
+              const active = i === selectedDay;
+              return (
+                <button
+                  key={d.dayKey}
+                  onClick={() => setSelectedDay(i)}
+                  style={{
+                    textAlign: 'left',
+                    background: active ? 'var(--green)' : 'var(--card)',
+                    color: active ? '#FFFFFF' : 'var(--ink)',
+                    border: active ? '1px solid var(--green)' : '1px solid var(--border)',
+                    borderRadius: 12,
+                    padding: '14px 16px',
+                    cursor: 'pointer',
+                    transition: 'all 0.16s',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  <div
+                    className="mono"
+                    style={{
+                      fontSize: 10,
+                      letterSpacing: '0.10em',
+                      color: active ? 'rgba(255,255,255,0.75)' : 'var(--faint)',
+                      textTransform: 'uppercase',
+                      fontWeight: 600,
+                      marginBottom: 4,
+                    }}
+                  >
+                    {d.dayLabel} · {d.date}
+                  </div>
+                  <div
+                    className="serif"
+                    style={{
+                      fontSize: 18,
+                      fontWeight: 600,
+                      letterSpacing: '-0.01em',
+                      marginBottom: 2,
+                    }}
+                  >
+                    {d.headliner ? `★ ${d.headliner.name}` : `${d.shows.length} actos`}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: active ? 'rgba(255,255,255,0.85)' : 'var(--muted)',
+                    }}
+                  >
+                    {d.shows.length} actos ·{' '}
+                    {d.headliner
+                      ? `surge ${d.headliner.surgePct.toFixed(0)}%`
+                      : 'sem headliner'}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* MAIN GRID */}
+          {day && (
+            <div
               style={{
-                textAlign: 'left',
-                background: active ? 'var(--green)' : 'var(--card)',
-                color: active ? '#FFFFFF' : 'var(--ink)',
-                border: active
-                  ? '1px solid var(--green)'
-                  : '1px solid var(--border)',
-                borderRadius: 12,
-                padding: '14px 16px',
-                cursor: 'pointer',
-                transition: 'all 0.16s',
-                fontFamily: 'inherit',
+                display: 'grid',
+                gridTemplateColumns: '1.6fr 1fr',
+                gap: 20,
               }}
             >
-              <div
-                className="mono"
-                style={{
-                  fontSize: 10,
-                  letterSpacing: '0.10em',
-                  color: active ? 'rgba(255,255,255,0.75)' : 'var(--faint)',
-                  textTransform: 'uppercase',
-                  fontWeight: 600,
-                  marginBottom: 4,
-                }}
-              >
-                Dia {i + 1} · {s.date}
-              </div>
-              <div
-                className="serif"
-                style={{
-                  fontSize: 18,
-                  fontWeight: 600,
-                  letterSpacing: '-0.01em',
-                  marginBottom: 2,
-                }}
-              >
-                ★ {s.headliner}
-              </div>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: active ? 'rgba(255,255,255,0.85)' : 'var(--muted)',
-                }}
-              >
-                {s.dayLabel} · {s.crowd.toLocaleString('pt-PT')} pax
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* MAIN CONTENT */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: '1.6fr 1fr',
-          gap: 20,
-        }}
-      >
-        <ShowSchedule show={show} />
-        <ShowImpact show={show} />
-      </div>
+              <ShowSchedule day={day} />
+              <ShowImpact day={day} />
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
 
-function ShowSchedule({ show }: { show: Show }) {
-  const palcos = Array.from(new Set(show.lineup.map((l) => l.stage)));
-
+function ShowSchedule({ day }: { day: ShowDay }) {
+  const palcos = Array.from(new Set(day.shows.map((s) => s.stage)));
   return (
     <div
       style={{
@@ -144,37 +197,25 @@ function ShowSchedule({ show }: { show: Show }) {
       >
         <h2
           className="serif"
-          style={{
-            fontSize: 22,
-            fontWeight: 500,
-            color: 'var(--ink)',
-            margin: 0,
-          }}
+          style={{ fontSize: 22, fontWeight: 500, color: 'var(--ink)', margin: 0 }}
         >
-          {show.dayLabel}
+          {day.dayLabel}
         </h2>
         <span
           className="mono"
-          style={{
-            fontSize: 11,
-            color: 'var(--faint)',
-            letterSpacing: '0.06em',
-          }}
+          style={{ fontSize: 11, color: 'var(--faint)', letterSpacing: '0.06em' }}
         >
-          {show.date}
+          {day.date}
         </span>
       </div>
 
       {palcos.map((palco) => {
-        const acts = show.lineup
-          .filter((l) => l.stage === palco)
+        const acts = day.shows
+          .filter((s) => s.stage === palco)
           .sort((a, b) => a.time.localeCompare(b.time));
         return (
           <div key={palco} style={{ marginBottom: 16 }}>
-            <div
-              className="section-label"
-              style={{ marginBottom: 8, color: 'var(--muted)' }}
-            >
+            <div className="section-label" style={{ marginBottom: 8, color: 'var(--muted)' }}>
               {palco}
             </div>
             <div
@@ -190,7 +231,7 @@ function ShowSchedule({ show }: { show: Show }) {
                   key={`${palco}-${i}`}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '70px 1fr auto',
+                    gridTemplateColumns: '90px 1fr auto',
                     gap: 14,
                     padding: '10px 4px',
                     borderBottom: '1px solid var(--border)',
@@ -206,7 +247,7 @@ function ShowSchedule({ show }: { show: Show }) {
                       color: act.headliner ? 'var(--green-dark)' : 'var(--text)',
                     }}
                   >
-                    {act.time}
+                    {act.time}–{act.endTime}
                   </span>
                   <div>
                     <div
@@ -217,16 +258,9 @@ function ShowSchedule({ show }: { show: Show }) {
                       }}
                     >
                       {act.headliner && (
-                        <span
-                          style={{
-                            color: 'var(--green)',
-                            marginRight: 6,
-                          }}
-                        >
-                          ★
-                        </span>
+                        <span style={{ color: 'var(--green)', marginRight: 6 }}>★</span>
                       )}
-                      {act.artist}
+                      {act.name}
                       {act.headliner && (
                         <span
                           className="mono"
@@ -248,13 +282,19 @@ function ShowSchedule({ show }: { show: Show }) {
                     </div>
                   </div>
                   <span
+                    className="mono"
                     style={{
                       fontSize: 11,
-                      color: 'var(--faint)',
-                      fontStyle: 'italic',
+                      color:
+                        act.surgePct >= 80
+                          ? 'var(--critical)'
+                          : act.surgePct >= 60
+                          ? 'var(--amber)'
+                          : 'var(--muted)',
+                      fontWeight: 600,
                     }}
                   >
-                    {act.genre}
+                    surge {act.surgePct.toFixed(0)}%
                   </span>
                 </div>
               ))}
@@ -266,60 +306,72 @@ function ShowSchedule({ show }: { show: Show }) {
   );
 }
 
-function ShowImpact({ show }: { show: Show }) {
-  const hours = Object.keys(show.crowdCurve)
-    .map(Number)
-    .sort((a, b) => (a < 14 ? a + 24 : a) - (b < 14 ? b + 24 : b));
-  const maxCrowd = Math.max(...Object.values(show.crowdCurve));
+function ShowImpact({ day }: { day: ShowDay }) {
+  const headliner = day.headliner;
+  // Reconstrói curva de afluência hora-a-hora a partir dos shows
+  const hours: Record<number, number> = {};
+  for (let h = 14; h <= 26; h++) hours[h % 24] = 0;
+  for (const s of day.shows) {
+    const hStart = parseInt(s.time.split(':')[0], 10);
+    const hEnd = parseInt(s.endTime.split(':')[0], 10);
+    const peak = Math.round(50_000 + s.surgePct * 800);
+    for (let h = hStart; h <= hEnd; h++) {
+      const key = h >= 24 ? h - 24 : h;
+      hours[key] = Math.max(hours[key] ?? 0, peak);
+    }
+  }
+  const orderedHours = [14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2];
+  const peakValue = Math.max(...orderedHours.map((h) => hours[h] ?? 0));
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-      }}
-    >
-      {/* Headliner card */}
-      <div
-        style={{
-          background:
-            'linear-gradient(135deg, var(--green-dark), var(--green-accent))',
-          color: '#FFFFFF',
-          borderRadius: 14,
-          padding: '20px 22px',
-        }}
-      >
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {headliner ? (
         <div
-          className="mono"
           style={{
-            fontSize: 10,
-            color: 'rgba(255,255,255,0.75)',
-            letterSpacing: '0.14em',
-            textTransform: 'uppercase',
-            fontWeight: 600,
-            marginBottom: 8,
+            background: 'linear-gradient(135deg, var(--green-dark), var(--green-accent))',
+            color: '#FFFFFF',
+            borderRadius: 14,
+            padding: '20px 22px',
           }}
         >
-          ★ Headliner principal
+          <div
+            className="mono"
+            style={{
+              fontSize: 10,
+              color: 'rgba(255,255,255,0.75)',
+              letterSpacing: '0.14em',
+              textTransform: 'uppercase',
+              fontWeight: 600,
+              marginBottom: 8,
+            }}
+          >
+            ★ Headliner do dia
+          </div>
+          <div
+            className="serif"
+            style={{ fontSize: 32, fontWeight: 600, lineHeight: 1.05, marginBottom: 4 }}
+          >
+            {headliner.name}
+          </div>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>
+            {headliner.stage} · {headliner.time}–{headliner.endTime} · surge esperado{' '}
+            {headliner.surgePct.toFixed(0)}%
+          </div>
         </div>
+      ) : (
         <div
-          className="serif"
           style={{
-            fontSize: 32,
-            fontWeight: 600,
-            lineHeight: 1.05,
-            marginBottom: 4,
+            background: 'var(--card)',
+            border: '1px solid var(--border)',
+            borderRadius: 14,
+            padding: '20px 22px',
+            color: 'var(--muted)',
           }}
         >
-          {show.headliner}
+          Sem headliner declarado neste dia.
         </div>
-        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.85)' }}>
-          {show.date} · {show.crowd.toLocaleString('pt-PT')} pessoas estimadas
-        </div>
-      </div>
+      )}
 
-      {/* Crowd curve */}
       <div
         style={{
           background: 'var(--card)',
@@ -329,13 +381,13 @@ function ShowImpact({ show }: { show: Show }) {
         }}
       >
         <div className="section-label" style={{ marginBottom: 8 }}>
-          Curva de afluência · hora a hora
+          Carga estimada · hora a hora
         </div>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 96 }}>
-          {hours.map((h) => {
-            const v = show.crowdCurve[h];
-            const pct = (v / maxCrowd) * 100;
-            const isPeak = h === show.peakHour;
+          {orderedHours.map((h) => {
+            const v = hours[h] ?? 0;
+            const pct = peakValue ? (v / peakValue) * 100 : 0;
+            const isPeak = v === peakValue && v > 0;
             return (
               <div
                 key={h}
@@ -347,7 +399,7 @@ function ShowImpact({ show }: { show: Show }) {
                   justifyContent: 'flex-end',
                   height: '100%',
                 }}
-                title={`${h}h · ${v.toLocaleString('pt-PT')} pessoas`}
+                title={`${h}h · ~${v.toLocaleString('pt-PT')} pessoas`}
               >
                 <div
                   style={{
@@ -373,23 +425,24 @@ function ShowImpact({ show }: { show: Show }) {
             );
           })}
         </div>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            fontSize: 11,
-            color: 'var(--muted)',
-            marginTop: 10,
-            paddingTop: 8,
-            borderTop: '1px solid var(--border)',
-          }}
-        >
-          <span>Pico às {show.peakHour}h</span>
-          <span className="mono">{maxCrowd.toLocaleString('pt-PT')} pax</span>
-        </div>
+        {peakValue > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              fontSize: 11,
+              color: 'var(--muted)',
+              marginTop: 10,
+              paddingTop: 8,
+              borderTop: '1px solid var(--border)',
+            }}
+          >
+            <span>Pico estimado</span>
+            <span className="mono">~{peakValue.toLocaleString('pt-PT')} pax</span>
+          </div>
+        )}
       </div>
 
-      {/* Predictions */}
       <div
         style={{
           background: 'var(--card)',
@@ -402,52 +455,22 @@ function ShowImpact({ show }: { show: Show }) {
           Impacto previsto nos WC
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <ImpactRow
-            label="Surge factor pós-show"
-            value={`${show.surgeFactor.toFixed(1)}×`}
-            sub={`Fim de show entre ${show.peakHour + 1}h e ${show.peakHour + 2}h`}
-            critical={show.surgeFactor >= 4}
-          />
-          <ImpactRow
-            label="Visitas por pessoa"
-            value={`${show.visitsPerHead}×`}
-            sub={`${Math.round(show.crowd * show.visitsPerHead).toLocaleString('pt-PT')} visitas totais ao WC`}
-          />
-          <ImpactRow
-            label="Cluster sob pressão"
-            value="WC-04 · WC-05"
-            sub="Proximidade aos palcos principais"
-          />
-          <ImpactRow
-            label="Cluster recomendado"
-            value="WC-06"
-            sub="208 lugares · maior cluster · zona sul"
-            ok
-          />
+          {day.shows.map((s) => (
+            <ImpactRow key={s.id} show={s} />
+          ))}
         </div>
       </div>
     </div>
   );
 }
 
-function ImpactRow({
-  label,
-  value,
-  sub,
-  critical,
-  ok,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  critical?: boolean;
-  ok?: boolean;
-}) {
-  const col = critical
-    ? 'var(--critical)'
-    : ok
-    ? 'var(--green)'
-    : 'var(--text)';
+function ImpactRow({ show }: { show: DisplayShow }) {
+  const col =
+    show.surgePct >= 80
+      ? 'var(--critical)'
+      : show.surgePct >= 60
+      ? 'var(--amber)'
+      : 'var(--green)';
   return (
     <div
       style={{
@@ -460,24 +483,31 @@ function ImpactRow({
       }}
     >
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 11, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>
-          {label}
+        <div
+          style={{
+            fontSize: 12,
+            color: 'var(--text)',
+            fontWeight: show.headliner ? 700 : 500,
+          }}
+        >
+          {show.headliner && <span style={{ color: 'var(--green)', marginRight: 4 }}>★</span>}
+          {show.name}
         </div>
         <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-          {sub}
+          {show.stage} · {show.time}–{show.endTime}
         </div>
       </div>
       <div
         className="serif"
         style={{
-          fontSize: 18,
+          fontSize: 20,
           fontWeight: 600,
           color: col,
           flexShrink: 0,
           letterSpacing: '-0.01em',
         }}
       >
-        {value}
+        {show.surgePct.toFixed(0)}%
       </div>
     </div>
   );
