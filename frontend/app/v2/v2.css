@@ -1,0 +1,265 @@
+/* ===========================================================================
+   PlantaOS v2 — Design system tokens
+   White background · Planta verde · Cormorant + DM Sans + DM Mono
+   =========================================================================== */
+
+.v2-root {
+  /* Surface */
+  --bg: #FFFFFF;
+  --surface: #FAFAF7;
+  --surface-2: #F4F1E8;
+  --card: #FFFFFF;
+  --card-hover: rgba(46, 125, 79, 0.04);
+
+  /* Border */
+  --border: rgba(27, 58, 33, 0.10);
+  --border-strong: rgba(27, 58, 33, 0.20);
+  --border-soft: rgba(27, 58, 33, 0.06);
+
+  /* Text */
+  --ink: #0D1A0F;
+  --text: #1A2E1C;
+  --muted: #3A6040;
+  --faint: #7A9E7E;
+  --ghost: #B5C9B9;
+
+  /* Brand */
+  --green: #2E7D4F;
+  --green-dark: #1B3A21;
+  --green-light: #6FAF82;
+  --green-pale: #EDF4EF;
+  --green-accent: #4A7C59;
+
+  /* Semantic */
+  --critical: #C25A1A;
+  --critical-bg: rgba(194, 90, 26, 0.10);
+  --amber: #A85D00;
+  --amber-bg: rgba(168, 93, 0, 0.10);
+  --info: #2563EB;
+  --info-bg: rgba(37, 99, 235, 0.08);
+  --ok: #2E7D4F;
+  --ok-bg: rgba(46, 125, 79, 0.10);
+
+  /* Effects */
+  --shadow-sm: 0 1px 2px rgba(13, 26, 15, 0.04);
+  --shadow-md: 0 4px 16px rgba(13, 26, 15, 0.06);
+  --shadow-lg: 0 12px 32px rgba(13, 26, 15, 0.10);
+
+  /* Geometry */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+
+  /* Layout */
+  --topbar-h: 56px;
+  --terminal-h: 36px;
+
+  font-family: var(--font-ui), system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  min-height: 100vh;
+}
+
+.v2-root *,
+.v2-root *::before,
+.v2-root *::after {
+  box-sizing: border-box;
+}
+
+.v2-content {
+  min-height: calc(100vh - var(--topbar-h) - var(--terminal-h));
+  padding-top: var(--topbar-h);
+  padding-bottom: var(--terminal-h);
+  background: var(--bg);
+}
+
+/* ---- Typography ---- */
+.v2-root .serif {
+  font-family: var(--font-serif), Georgia, serif;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+.v2-root .mono {
+  font-family: var(--font-mono), ui-monospace, 'SF Mono', Menlo, monospace;
+  font-feature-settings: 'tnum' 1, 'cv11' 1;
+}
+
+.v2-root h1,
+.v2-root h2,
+.v2-root h3 {
+  font-family: var(--font-serif), Georgia, serif;
+  font-weight: 500;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+/* ---- Scrollbar ---- */
+.v2-root ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.v2-root ::-webkit-scrollbar-track {
+  background: transparent;
+}
+.v2-root ::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+.v2-root ::-webkit-scrollbar-thumb:hover {
+  background: var(--faint);
+}
+
+/* ---- Reusable atoms ---- */
+.v2-root .pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.v2-root .pill-sim {
+  background: var(--amber-bg);
+  color: var(--amber);
+  border: 1px solid rgba(168, 93, 0, 0.20);
+}
+.v2-root .pill-sim::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.v2-root .pill-live {
+  background: var(--ok-bg);
+  color: var(--ok);
+  border: 1px solid rgba(46, 125, 79, 0.20);
+}
+
+.v2-root .pill-crit {
+  background: var(--critical-bg);
+  color: var(--critical);
+  border: 1px solid rgba(194, 90, 26, 0.25);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+@keyframes fadein {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+.v2-root .fade-in {
+  animation: fadein 0.35s ease-out;
+}
+
+/* ---- Buttons ---- */
+.v2-root .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui), sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.16s ease;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.v2-root .btn-primary {
+  background: var(--green);
+  color: #FFFFFF;
+}
+.v2-root .btn-primary:hover {
+  background: var(--green-dark);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.v2-root .btn-outline {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.v2-root .btn-outline:hover {
+  border-color: var(--green);
+  color: var(--green);
+  background: var(--green-pale);
+}
+
+.v2-root .btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.v2-root .btn-ghost:hover {
+  background: var(--card-hover);
+  color: var(--green);
+}
+
+.v2-root .btn-sm {
+  padding: 5px 12px;
+  font-size: 11px;
+}
+
+/* ---- Cards ---- */
+.v2-root .card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+
+.v2-root .card-elevated {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 22px;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ---- Section labels ---- */
+.v2-root .section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--green);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.v2-root .section-label::before {
+  content: '';
+  width: 28px;
+  height: 1px;
+  background: var(--green);
+}
+
+/* ---- Responsive helpers ---- */
+@media (max-width: 720px) {
+  .v2-root {
+    --topbar-h: 52px;
+  }
+}
