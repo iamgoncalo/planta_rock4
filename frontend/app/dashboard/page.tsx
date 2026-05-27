@@ -51,7 +51,7 @@ function toWcId(sectionId: string): string {
 }
 
 function aggregateClusters(sections: Section[]): Map<string, ClusterDisplay> {
-  const acc = new Map
+  const acc = new Map<
     string,
     {
       pessoas: number;
