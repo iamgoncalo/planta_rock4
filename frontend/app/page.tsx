@@ -178,10 +178,17 @@ export default function HomePage() {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em' }}>
-              PlantaOS
-            </h1>
-            <p style={{ margin: '3px 0 0', fontSize: 12, opacity: 0.75 }}>
+            <img
+              src="/planta-logo.svg"
+              alt="Planta Smart Homes"
+              width={130}
+              height={101}
+              style={{
+                display: 'block',
+                filter: 'brightness(0) invert(1) drop-shadow(0 2px 8px rgba(0,0,0,0.25))',
+              }}
+            />
+            <p style={{ margin: '6px 0 0', fontSize: 12, opacity: 0.75, color: '#fff' }}>
               Rock in Rio Lisboa 2026 · Parque Tejo
             </p>
           </div>

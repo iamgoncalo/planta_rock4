@@ -13,3 +13,8 @@ htmlcov/
 dist/
 build/
 node_modules/
+.vercel
+.env*
+frontend/.next/
+frontend/tsconfig.tsbuildinfo
+app/main.py.bak

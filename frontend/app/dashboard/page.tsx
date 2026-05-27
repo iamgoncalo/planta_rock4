@@ -134,11 +134,16 @@ function aggregateClusters(sections: Section[]): Map<string, ClusterDisplay> {
 
 function PlantaLogo() {
   return (
-    <svg viewBox="0 0 100 100" width={36} height={36} aria-label="Planta">
-      <circle cx={50} cy={50} r={42} fill={C.accentDark} />
-      <path d="M 35 60 Q 50 25 65 60 Q 50 50 35 60 Z" fill={C.accentLight} />
-      <line x1={50} y1={60} x2={50} y2={80} stroke={C.accentLight} strokeWidth={3} strokeLinecap="round" />
-    </svg>
+    <img
+      src="/planta-logo.svg"
+      alt="Planta Smart Homes"
+      width={140}
+      height={109}
+      style={{
+        display: 'block',
+        filter: 'drop-shadow(0 1px 3px rgba(27,58,33,0.15))',
+      }}
+    />
   );
 }
 
@@ -307,7 +312,7 @@ export default function DashboardPage() {
                 fontFamily: 'Georgia, serif',
               }}
             >
-              PlantaOS · Operations Dashboard
+              Operations Dashboard
             </h1>
             <p style={{ margin: '3px 0 0', fontSize: 13, color: C.muted }}>
               Rock in Rio Lisboa 2026 · Parque Tejo · 8 WCs

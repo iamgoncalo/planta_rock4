@@ -4,10 +4,11 @@ import json
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+import httpx
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
 
 from app.config import get_settings
 from app.routers.health import router as health_router
@@ -23,6 +24,7 @@ from app.routers.routing import router as routing_router
 from app.routers.chat import router as chat_router
 from app.routers.simulate import router as simulate_router
 from app.routers.scor import router as scor_router
+from app.routers.devices import router as devices_router
 
 logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
@@ -82,6 +84,14 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.warning(f"SCOR publisher startup warning: {e}")
 
+        # Start MQTT bridge (device control — connects when broker is available)
+        try:
+            from app.services.mqtt_bridge import mqtt_bridge_loop
+            asyncio.create_task(mqtt_bridge_loop())
+            logger.info("MQTT bridge started")
+        except Exception as e:
+            logger.warning(f"MQTT bridge startup warning: {e}")
+
     # CORS — allow frontend dev servers and the API itself
     app.add_middleware(
         CORSMiddleware,
@@ -110,6 +120,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(simulate_router)
     app.include_router(scor_router)
+    app.include_router(devices_router)
 
     # WebSocket: broadcasts live payload every 5s to connected clients
     @app.websocket("/api/v1/ws")
@@ -129,17 +140,61 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
-    # Static files
+    # Static files (legacy standalone HTML, still served at /static/*)
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    # Root: serve dashboard or placeholder
-    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
-    async def root():
-        dashboard = STATIC_DIR / "index.html"
-        if dashboard.exists():
-            return dashboard.read_text()
-        return "<h1>PlantaOS — Rock in Rio Lisboa 2026</h1><p>Dashboard not yet built. See <a href='/docs'>/docs</a>.</p>"
+    # ── Next.js dev-server proxy ──────────────────────────────────────────────
+    # Forwards every non-API, non-docs request to the Next.js dev server so
+    # the full React app (including /sensors, /_next/*, HMR) is reachable at
+    # http://localhost:8000 without leaving the backend port.
+    NEXT_DEV = "http://localhost:3002"
+    # disable httpx auto-decompress so we forward raw bytes; strip Accept-Encoding
+    # from upstream requests so Next.js sends plain bytes (no gzip confusion)
+    _proxy_client = httpx.AsyncClient(
+        base_url=NEXT_DEV,
+        timeout=15.0,
+        headers={"Accept-Encoding": "identity"},
+    )
+
+    # Headers that must NOT be forwarded from the upstream response
+    _drop_resp = {"content-encoding", "content-length", "transfer-encoding",
+                  "connection", "keep-alive", "te", "trailers", "upgrade"}
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    @app.post("/{full_path:path}", include_in_schema=False)
+    async def proxy_nextjs(full_path: str, request: Request):
+        # Strip hop-by-hop request headers
+        skip_req = {"host", "connection", "transfer-encoding", "te",
+                    "trailers", "upgrade", "keep-alive", "accept-encoding"}
+        fwd_headers = {k: v for k, v in request.headers.items()
+                       if k.lower() not in skip_req}
+        url = f"/{full_path}"
+        if request.url.query:
+            url += f"?{request.url.query}"
+        try:
+            resp = await _proxy_client.request(
+                method=request.method,
+                url=url,
+                headers=fwd_headers,
+                content=await request.body(),
+            )
+            resp_headers = {k: v for k, v in resp.headers.items()
+                            if k.lower() not in _drop_resp}
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                headers=resp_headers,
+                media_type=resp.headers.get("content-type"),
+            )
+        except httpx.ConnectError:
+            return HTMLResponse(
+                "<h2>PlantaOS</h2>"
+                "<p>Frontend dev server não está a correr.<br>"
+                "Inicia com: <code>cd planta_rock4/frontend && npm run dev -- -p 3002</code></p>"
+                "<p>API: <a href='/docs'>/docs</a></p>",
+                status_code=503,
+            )
 
     return app
 

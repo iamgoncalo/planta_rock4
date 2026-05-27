@@ -350,9 +350,11 @@ async def update_sensor(sensor_id: str, body: dict, db: AsyncSession = Depends(g
     if not s:
         raise HTTPException(status_code=404, detail=f"Sensor {sensor_id!r} not found")
 
-    await db.execute(update(Sensor).where(Sensor.id == sensor_id).values(**updates))
+    for k, v in updates.items():
+        setattr(s, k, v)
     await db.commit()
-    return {"sensor_id": sensor_id, "updated": True, "fields": list(updates.keys())}
+    await db.refresh(s)
+    return {"sensor_id": sensor_id, "updated": True, "fields": list(updates.keys()), **{k: getattr(s, k) for k in updates.keys()}}
 
 
 # ---------------------------------------------------------------------------
@@ -423,8 +425,9 @@ async def log_maintenance(sensor_id: str, body: dict, db: AsyncSession = Depends
         performed_by=body.get("performed_by", "api"),
     )
     db.add(m)
+    await db.flush()   # execute INSERT, get RETURNING id before commit
+    await db.refresh(m)  # pull server defaults (performed_at)
     await db.commit()
-    await db.refresh(m)
     return _maintenance_to_dict(m)
 
 

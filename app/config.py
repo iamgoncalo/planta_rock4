@@ -22,6 +22,15 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://goncalomelodemagalhaes@localhost/plantaos"
 
+    # MQTT — device control bridge
+    mqtt_host:     str = "localhost"
+    mqtt_port:     int = 1883
+    mqtt_user:     str = "plantaos"
+    mqtt_password: str = "planta2026mqtt"
+
+    # Public URL (OTA firmware serving)
+    public_url: str = "http://localhost:8000"
+
     # CORS
     cors_origins: list[str] = [
         "http://localhost:3000",
