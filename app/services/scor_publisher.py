@@ -21,6 +21,13 @@ from statistics import mean
 import httpx
 
 log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+# Force handler if none exists (Railway captures stdout)
+if not log.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s: %(message)s'))
+    log.addHandler(_h)
+log.propagate = True
 
 # 8 clusters físicos
 ALL_CLUSTERS = ["wc-01", "wc-02", "wc-03", "wc-04", "wc-05", "wc-06", "wc-07", "wc-08"]
