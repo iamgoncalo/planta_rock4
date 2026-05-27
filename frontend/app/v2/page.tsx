@@ -303,7 +303,7 @@ export default function HomePage() {
             entradas: 0,
             saidas: 0,
             confianca: 0.5,
-            simulated: true,
+            simulated: false,
             status: 'ok' as const,
           }))).map((c) => (
             <Link

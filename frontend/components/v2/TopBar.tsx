@@ -116,8 +116,32 @@ export default function TopBar() {
           flexShrink: 0,
         }}
       >
-        <span className="pill pill-sim" title="Dados simulados até instalação física 11–12 Junho 2026">
-          SIMULADO
+        <span
+          className="pill"
+          title="Sensores físicos a instalar a 11–12 Junho 2026 · dashboard em modo demonstração até essa data"
+          style={{
+            background: 'var(--amber-bg, rgba(168,93,0,0.10))',
+            color: 'var(--amber, #A85D00)',
+            border: '1px solid rgba(168,93,0,0.22)',
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: '0.10em',
+            padding: '4px 10px',
+            borderRadius: 999,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          <span
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: 'var(--amber, #A85D00)',
+            }}
+          />
+          PRÉ-INSTALAÇÃO · 11 JUN
         </span>
         <span
           className="mono"

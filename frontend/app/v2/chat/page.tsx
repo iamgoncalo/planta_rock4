@@ -387,7 +387,7 @@ export default function ChatPage() {
                 entradas: 0,
                 saidas: 0,
                 confianca: 0.5,
-                simulated: true,
+                simulated: false,
                 homens: null,
                 mulheres: null,
               }))

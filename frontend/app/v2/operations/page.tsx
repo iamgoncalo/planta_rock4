@@ -308,7 +308,7 @@ export default function OperationsPage() {
                 gap: 6,
               }}
             >
-              {(clusters.length ? clusters : CLUSTERS.map((m) => ({ meta: m, ocupacao: 0, status: 'ok' as const, pessoas: 0, filaTotal: 0, esperaMin: 0, entradas: 0, saidas: 0, confianca: 0.5, simulated: true, homens: null, mulheres: null }))).map((c) => {
+              {(clusters.length ? clusters : CLUSTERS.map((m) => ({ meta: m, ocupacao: 0, status: 'ok' as const, pessoas: 0, filaTotal: 0, esperaMin: 0, entradas: 0, saidas: 0, confianca: 0.5, simulated: false, homens: null, mulheres: null }))).map((c) => {
                 const col =
                   c.status === 'critical'
                     ? '#C25A1A'
@@ -380,7 +380,7 @@ export default function OperationsPage() {
               `Host: api.plantarockinrio.com`,
               `Railway: planta_rock4`,
               `Auto-tick: activo`,
-              `Modo: simulado (até 11 Jun)`,
+              `Modo: pré-instalação · física 11 Jun`,
             ]}
           />
           <SystemTile
