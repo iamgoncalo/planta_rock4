@@ -1,7 +1,10 @@
 """
-PlantaOS · Forecast router
-===========================
+PlantaOS · Forecast router (v8b — corrigido)
+=============================================
 GET /api/v1/forecast/cluster/{cluster_id}?horizon_min=30
+
+Lê o estado actual via get_live_payload() (sync), agrega secções por cluster,
+e projecta a curva a 5/10/15/20/25/30 min.
 """
 from __future__ import annotations
 
@@ -12,8 +15,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.services import forecast as fc_service
-from app.services.state import get_current_state
-from app.services.simulation import simulate_tick  # noqa — usado indirectamente
+from app.services.state import get_live_payload
 
 router = APIRouter(prefix="/api/v1/forecast", tags=["forecast"])
 
@@ -37,30 +39,28 @@ class ForecastResponse(BaseModel):
 
 
 def _minutes_to_next_show_end() -> Optional[int]:
-    """Stub minimal — sem acesso ao show schedule retorna None.
-    O auto_tick do surge_predictor (Caminho B parte 2) fará esta lógica
-    em background com acesso ao shows router."""
+    """Stub: ligar ao schedule de shows fica para v9. Sem surge previsto por defeito."""
     return None
 
 
 @router.get("/cluster/{cluster_id}", response_model=ForecastResponse)
-async def cluster_forecast(
+def cluster_forecast(
     cluster_id: str,
     horizon_min: int = Query(30, ge=5, le=60),
 ):
-    """Projecta a ocupação do cluster para os próximos minutos."""
+    """Projecta ocupação de um cluster ao longo do horizonte."""
     try:
-        state = await get_current_state()
+        payload = get_live_payload()
     except Exception as e:
-        raise HTTPException(500, detail=f"Não consegui ler estado actual: {e}")
+        raise HTTPException(500, detail=f"Não consegui ler estado: {e}")
 
-    # Encontra ocupação actual agregada por cluster
-    sections = getattr(state, "sections", None) or []
+    sections = getattr(payload, "sections", None) or []
     cluster_pcts: list[float] = []
     for s in sections:
-        sid = getattr(s, "section_id", "")
+        sid = getattr(s, "section_id", "") or ""
+        # section_id típico: "WC-04_M" ou "WC-06" (unisex)
         if sid.startswith(cluster_id):
-            pct = getattr(s, "ocupacao_pct", 0.0)
+            pct = getattr(s, "ocupacao_pct", 0.0) or 0.0
             cluster_pcts.append(float(pct))
 
     if not cluster_pcts:
@@ -68,13 +68,10 @@ async def cluster_forecast(
 
     current_pct = sum(cluster_pcts) / len(cluster_pcts)
 
-    # Slope conservador — 0 por defeito (sem histórico em memória ainda)
-    slope = 0.0
-
     forecast = fc_service.project(
         cluster_id=cluster_id,
         current_pct=current_pct,
-        trend_slope_per_min=slope,
+        trend_slope_per_min=0.0,
         minutes_to_show_end=_minutes_to_next_show_end(),
         horizon_min=horizon_min,
     )
