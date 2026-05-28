@@ -18,3 +18,4 @@ node_modules/
 frontend/.next/
 frontend/tsconfig.tsbuildinfo
 app/main.py.bak
+*.bak*
