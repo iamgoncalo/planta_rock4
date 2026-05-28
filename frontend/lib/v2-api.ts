@@ -446,9 +446,11 @@ export const api = {
   ingestStatus: () => getJson<any>('/api/v1/ingest/status'),
 
   // ── Frota de sensores + fusao (v49 backend) ──
-  fleet: () => getJson<any>('/api/v1/fleet'),
+  fleet: (mode?: string) => getJson<any>(`/api/v1/fleet${mode ? '?mode=' + mode : ''}`),
   fleetSummary: () => getJson<any>('/api/v1/fleet/summary'),
-  fusion: (cluster: string) => getJson<any>(`/api/v1/fusion/${cluster}`),
+  fleetMode: () => getJson<any>('/api/v1/fleet/mode'),
+  setFleetMode: (mode: string) => getJson<any>(`/api/v1/fleet/mode?mode=${mode}`, { method: 'POST' }),
+  fusion: (cluster: string, mode?: string) => getJson<any>(`/api/v1/fusion/${cluster}${mode ? '?mode=' + mode : ''}`),
 
   // ── Comandos de device (via MQTT, por cluster) ──
   devicePing: (cluster: string) =>
