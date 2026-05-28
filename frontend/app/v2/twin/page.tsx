@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLive, type LiveSnapshot } from '@/components/v2/LiveContext';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://api.plantarockinrio.com';
@@ -468,6 +468,142 @@ const VIEWS: { id: string; label: string; comp: (p: VProps) => JSX.Element; geog
 ];
 
 /* ════════════════════════════════════════════════════════════════════
+   HISTÓRICO / TENDÊNCIA / FLUXO (observado nesta sessão)
+   ════════════════════════════════════════════════════════════════════ */
+
+function paramOf(snap: LiveSnapshot | null, id: string, key: string): number {
+  const c = snap?.clusters?.find((x) => x.cluster_id.toLowerCase() === id.toLowerCase());
+  const p: any = c?.params ?? {};
+  return Number(p[key] ?? 0);
+}
+
+function Sparkline({ data, color }: { data: number[]; color: string }) {
+  if (data.length < 2) return <div className="tw-spark-empty">a recolher dados…</div>;
+  const w = 280, h = 56, pad = 4;
+  const max = 100, min = 0;
+  const pts = data.map((v, i) => {
+    const x = pad + (i / (data.length - 1)) * (w - 2 * pad);
+    const y = h - pad - ((v - min) / (max - min)) * (h - 2 * pad);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const area = `M ${pad},${h - pad} L ${pts.join(' L ')} L ${w - pad},${h - pad} Z`;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="tw-spark" preserveAspectRatio="none">
+      <line x1={pad} y1={h - pad - (0.85 * (h - 2 * pad))} x2={w - pad} y2={h - pad - (0.85 * (h - 2 * pad))} stroke="#C25A1A" strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />
+      <path d={area} fill={color} opacity="0.12" />
+      <polyline points={pts.join(' ')} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={pts[pts.length - 1].split(',')[0]} cy={pts[pts.length - 1].split(',')[1]} r="3.5" fill={color} />
+    </svg>
+  );
+}
+
+function project(data: number[]): number | null {
+  if (data.length < 3) return null;
+  const recent = data.slice(-5);
+  const slope = (recent[recent.length - 1] - recent[0]) / (recent.length - 1);
+  return Math.max(0, Math.min(100, Math.round(recent[recent.length - 1] + slope * 2)));
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   PAINEL DE DETALHE — capacidade · agora · tendência · projeção · fluxo
+   ════════════════════════════════════════════════════════════════════ */
+
+interface DetailProps {
+  cluster: GeoCluster; occ: number; hist: number[];
+  snap: LiveSnapshot | null;
+  reco: { to: GeoCluster; dist: number; walk: number; occ: number; allFull: boolean } | null;
+  onClose: () => void;
+}
+
+function DetailPanel({ cluster, occ, hist, snap, reco, onClose }: DetailProps) {
+  const m = meta(cluster.id);
+  const st = occSt(occ);
+  const fila = Math.round(paramOf(snap, cluster.id, 'fila_atual'));
+  const espera = paramOf(snap, cluster.id, 'tempo_espera_min');
+  const fluxo = Math.round(paramOf(snap, cluster.id, 'fluxo_entrada_pmin'));
+  const pessoas = Math.round((occ / 100) * cluster.capacity_total);
+  const proj = project(hist);
+  const livres = Math.max(0, cluster.capacity_total - pessoas);
+
+  return (
+    <aside className="tw-detail-inner">
+      <div className="tw-d-head" style={{ ['--tc' as any]: m.color }}>
+        <div>
+          <div className="tw-d-dex">{dexNum(cluster.id)} · {m.name}</div>
+          <div className="tw-d-id">{cluster.id}</div>
+        </div>
+        <button className="tw-d-close" onClick={onClose} aria-label="Fechar">✕</button>
+      </div>
+
+      <div className="tw-d-badges">
+        <span className="tw-d-elem" style={{ background: m.color }}>{m.element}</span>
+        <span className="tw-d-gen">{cluster.unisex ? 'Unissexo' : 'M / F'}</span>
+        <span className="tw-d-state" style={{ color: STc[st] }}>● {STlabel[st]}</span>
+      </div>
+
+      {/* AGORA */}
+      <section className="tw-d-sec">
+        <h3 className="tw-d-h3">Agora</h3>
+        <div className="tw-d-big" style={{ color: STc[st] }}>{occ}<span>%</span></div>
+        <div className="tw-d-grid">
+          <div className="tw-d-cell"><span className="tw-d-k">Pessoas</span><span className="tw-d-v">{pessoas}</span></div>
+          <div className="tw-d-cell"><span className="tw-d-k">Lugares livres</span><span className="tw-d-v">{livres}</span></div>
+          <div className="tw-d-cell"><span className="tw-d-k">Fila</span><span className="tw-d-v">{fila}</span></div>
+          <div className="tw-d-cell"><span className="tw-d-k">Espera</span><span className="tw-d-v">{espera.toFixed(0)} min</span></div>
+        </div>
+      </section>
+
+      {/* TENDÊNCIA + PROJEÇÃO */}
+      <section className="tw-d-sec">
+        <h3 className="tw-d-h3">Tendência <span className="tw-d-sub">observado · projeção</span></h3>
+        <Sparkline data={hist} color={m.color} />
+        <div className="tw-d-proj">
+          {proj !== null
+            ? <>Projeção a ~20 min: <strong style={{ color: STc[occSt(proj)] }}>{proj}%</strong> · {proj > occ ? 'a subir' : proj < occ ? 'a descer' : 'estável'}</>
+            : <>a recolher dados para projeção…</>}
+        </div>
+      </section>
+
+      {/* FLUXO */}
+      <section className="tw-d-sec">
+        <h3 className="tw-d-h3">Fluxo</h3>
+        <div className="tw-d-grid">
+          <div className="tw-d-cell"><span className="tw-d-k">Entrada</span><span className="tw-d-v">{fluxo}/min</span></div>
+          <div className="tw-d-cell"><span className="tw-d-k">Distância à entrada</span><span className="tw-d-v">{Math.round(Math.hypot(cluster.e_m - 290, cluster.n_m - 175))} m</span></div>
+        </div>
+      </section>
+
+      {/* CAPACIDADE */}
+      <section className="tw-d-sec">
+        <h3 className="tw-d-h3">Capacidade</h3>
+        <div className="tw-d-cap">
+          <div className="tw-d-cap-row"><span>Total</span><strong>{cluster.capacity_total} lugares</strong></div>
+          {!cluster.unisex && cluster.cap_m !== null && (
+            <div className="tw-d-cap-bar">
+              <div className="tw-d-cap-m" style={{ width: `${(cluster.cap_m / cluster.capacity_total) * 100}%` }}>M {cluster.cap_m}</div>
+              <div className="tw-d-cap-f" style={{ width: `${((cluster.cap_f ?? 0) / cluster.capacity_total) * 100}%` }}>F {cluster.cap_f}</div>
+            </div>
+          )}
+          {cluster.unisex && <div className="tw-d-cap-row"><span>Unissexo</span><strong>{cluster.cap ?? cluster.capacity_total} lugares</strong></div>}
+        </div>
+        <div className="tw-d-desc">{cluster.desc}</div>
+      </section>
+
+      {/* RECOMENDAÇÃO */}
+      {reco && (
+        <section className="tw-d-sec tw-d-reco">
+          <h3 className="tw-d-h3">{occ >= 85 ? 'Está cheio — desvia para' : 'Alternativa mais perto'}</h3>
+          <div className="tw-d-reco-box">
+            <span className="tw-d-reco-wc">{reco.to.id}</span>
+            <span className="tw-d-reco-m">{reco.dist} m · {reco.walk} min · <span style={{ color: STc[occSt(reco.occ)] }}>{STlabel[occSt(reco.occ)]}</span></span>
+          </div>
+        </section>
+      )}
+    </aside>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════════════
    PÁGINA
    ════════════════════════════════════════════════════════════════════ */
 
@@ -475,7 +611,11 @@ export default function TwinPage() {
   const { snapshot, connection } = useLive();
   const [geo, setGeo] = useState<GeoPayload>(FALLBACK_GEO);
   const [viewId, setViewId] = useState('mapa');
-  const [origin, setOrigin] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+
+  const histRef = useRef<Map<string, number[]>>(new Map());
+  const lastTsRef = useRef<number>(0);
+  const [, setHistTick] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -488,6 +628,20 @@ export default function TwinPage() {
     return () => { cancelled = true; };
   }, []);
 
+  // buffer de histórico (um ponto a cada ~8s por cluster)
+  useEffect(() => {
+    const now = Date.now();
+    if (now - lastTsRef.current < 7000 && lastTsRef.current !== 0) return;
+    lastTsRef.current = now;
+    for (const c of geo.clusters) {
+      const arr = histRef.current.get(c.id) ?? [];
+      arr.push(occOf(snapshot, c.id));
+      if (arr.length > 40) arr.shift();
+      histRef.current.set(c.id, arr);
+    }
+    setHistTick((x) => x + 1);
+  }, [snapshot, geo]);
+
   const eng = useMemo(() => makeEngine(geo), [geo]);
   const occById = useMemo(() => {
     const m = new Map<string, number>();
@@ -496,18 +650,19 @@ export default function TwinPage() {
   }, [geo, snapshot]);
 
   const reco = useMemo(() => {
-    if (!origin) return null;
-    const from = geo.clusters.find((c) => c.id === origin);
+    if (!selected) return null;
+    const from = geo.clusters.find((c) => c.id === selected);
     if (!from) return null;
-    const cand = geo.clusters.filter((c) => c.id !== origin).map((c) => ({ c, d: distM(from, c), o: occById.get(c.id) ?? 0 }));
+    const cand = geo.clusters.filter((c) => c.id !== selected).map((c) => ({ c, d: distM(from, c), o: occById.get(c.id) ?? 0 }));
     const free = cand.filter((r) => r.o < 85).sort((a, b) => a.d - b.d);
     const pick = free[0] ?? cand.sort((a, b) => a.o - b.o)[0];
     return pick ? { from, to: pick.c, dist: Math.round(pick.d), walk: Math.max(1, Math.round(pick.d / (1.35 * 60))), occ: pick.o, allFull: free.length === 0 } : null;
-  }, [origin, geo, occById]);
+  }, [selected, geo, occById]);
 
   const View = VIEWS.find((v) => v.id === viewId) ?? VIEWS[0];
   const live = connection === 'sse' || connection === 'polling';
-  const vprops: VProps = { geo, eng, occById, origin, setOrigin, reco: reco ? { from: reco.from, to: reco.to } : null };
+  const selCluster = selected ? geo.clusters.find((c) => c.id === selected) ?? null : null;
+  const vprops: VProps = { geo, eng, occById, origin: selected, setOrigin: setSelected, reco: reco ? { from: reco.from, to: reco.to } : null };
 
   return (
     <div className="tw-root">
@@ -525,22 +680,23 @@ export default function TwinPage() {
         ))}
       </div>
 
-      <div className="tw-stage">
-        <View.comp {...vprops} />
+      <div className={`tw-split ${selCluster ? 'is-open' : ''}`}>
+        <div className="tw-viz"><View.comp {...vprops} /></div>
+        <div className={`tw-detail ${selCluster ? 'is-open' : ''}`}>
+          {selCluster && (
+            <DetailPanel
+              cluster={selCluster}
+              occ={occById.get(selCluster.id) ?? 0}
+              hist={histRef.current.get(selCluster.id) ?? []}
+              snap={snapshot}
+              reco={reco}
+              onClose={() => setSelected(null)}
+            />
+          )}
+        </div>
       </div>
 
-      <div className="tw-bar">
-        {!origin && <div className="tw-hint">Toca num WC para definires onde estás · mostro-te o mais rápido a partir daí.</div>}
-        {origin && reco && (
-          <div className="tw-reco">
-            <div className="tw-reco-col"><span className="tw-reco-lbl">Estás em</span><span className="tw-reco-wc">{reco.from.id}</span></div>
-            <span className="tw-reco-arrow">→</span>
-            <div className="tw-reco-col"><span className="tw-reco-lbl">{reco.allFull ? 'Menos cheio' : 'Mais perto e livre'}</span><span className="tw-reco-wc" style={{ color: '#4A7C59' }}>{reco.to.id}</span></div>
-            <div className="tw-reco-m"><span><strong>{reco.dist}</strong> m</span><span><strong>{reco.walk}</strong> min</span><span style={{ color: STc[occSt(reco.occ)] }}>{STlabel[occSt(reco.occ)]}</span></div>
-            <button className="tw-reco-x" onClick={() => setOrigin(null)} aria-label="Limpar">✕</button>
-          </div>
-        )}
-      </div>
+      {!selCluster && <div className="tw-bar"><div className="tw-hint">Toca num WC para abrir tudo sobre ele · capacidade, fluxo, tendência e para onde desviar.</div></div>}
 
       <style jsx>{`
         .tw-root { position: fixed; top: var(--topbar-h, 72px); left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--paper, #FAFAF7); color: #0D1A0F; }
@@ -556,19 +712,22 @@ export default function TwinPage() {
         .tw-tab:hover { border-color: #4A7C59; }
         .tw-tab.is-on { background: #1B3A21; border-color: #1B3A21; color: #fff; font-weight: 600; }
 
-        .tw-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 4px clamp(8px,2vw,24px); }
+        .tw-split { flex: 1; min-height: 0; display: flex; gap: 0; }
+        .tw-viz { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; padding: 4px clamp(8px,2vw,24px); transition: padding 0.32s cubic-bezier(0.2,0.8,0.2,1); }
+        .tw-detail { width: 0; flex-shrink: 0; overflow: hidden; transition: width 0.32s cubic-bezier(0.2,0.8,0.2,1); }
+        .tw-detail.is-open { width: clamp(320px, 32%, 420px); }
 
         .tw-bar { flex-shrink: 0; padding: clamp(8px,1.2vw,14px) clamp(14px,2.6vw,32px) max(14px, env(safe-area-inset-bottom)); }
         .tw-hint { text-align: center; font-size: 14px; opacity: 0.55; }
-        .tw-reco { display: flex; align-items: center; gap: clamp(10px,1.6vw,20px); background: #fff; border: 1px solid #E5E8E0; border-radius: 16px; padding: 11px clamp(14px,2vw,20px); max-width: 760px; margin: 0 auto; box-shadow: 0 2px 14px rgba(13,26,15,0.05); }
-        .tw-reco-col { display: flex; flex-direction: column; gap: 1px; }
-        .tw-reco-lbl { font-size: 9px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.5; }
-        .tw-reco-wc { font-size: clamp(16px,1.8vw,22px); font-weight: 700; letter-spacing: -0.02em; }
-        .tw-reco-arrow { font-size: 18px; opacity: 0.4; }
-        .tw-reco-m { display: flex; gap: clamp(10px,1.4vw,16px); margin-left: auto; font-size: clamp(13px,1.4vw,16px); font-variant-numeric: tabular-nums; }
-        .tw-reco-m strong { font-weight: 800; }
-        .tw-reco-x { background: transparent; border: none; font-size: 15px; cursor: pointer; color: #0D1A0F; opacity: 0.4; flex-shrink: 0; }
-        .tw-reco-x:hover { opacity: 1; }
+
+        @media (max-width: 860px) {
+          .tw-split { position: relative; }
+          .tw-detail { position: fixed; left: 0; right: 0; bottom: 0; width: auto !important; max-height: 72vh; background: #fff; border-top-left-radius: 22px; border-top-right-radius: 22px; box-shadow: 0 -8px 30px rgba(13,26,15,0.16); transform: translateY(100%); transition: transform 0.32s cubic-bezier(0.2,0.8,0.2,1); z-index: 40; overflow-y: auto; }
+          .tw-detail.is-open { transform: translateY(0); width: auto; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .tw-viz, .tw-detail, .tw-cd { transition: none; animation: none; }
+        }
       `}</style>
 
       <style jsx global>{`
@@ -598,13 +757,45 @@ export default function TwinPage() {
         .tw-card-foot { display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
         .tw-card-cap { color: #3A4A3F; opacity: 0.6; font-variant-numeric: tabular-nums; }
 
+        /* PAINEL DE DETALHE */
+        .tw-detail-inner { height: 100%; overflow-y: auto; padding: clamp(16px,1.6vw,22px); display: flex; flex-direction: column; gap: 16px; background: #fff; border-left: 1px solid #E5E8E0; }
+        .tw-d-head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid var(--tc); padding-bottom: 12px; }
+        .tw-d-dex { font-size: 12px; font-weight: 700; color: var(--tc); font-family: monospace; }
+        .tw-d-id { font-size: clamp(22px,2.4vw,30px); font-weight: 700; letter-spacing: -0.03em; }
+        .tw-d-close { background: #F0EEE6; border: none; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 14px; color: #0D1A0F; flex-shrink: 0; }
+        .tw-d-close:hover { background: #E5E8E0; }
+        .tw-d-badges { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .tw-d-elem { font-size: 11px; font-weight: 700; color: #fff; padding: 4px 11px; border-radius: 999px; }
+        .tw-d-gen { font-size: 11px; font-weight: 600; color: #3A4A3F; }
+        .tw-d-state { font-size: 12px; font-weight: 700; margin-left: auto; }
+        .tw-d-sec { display: flex; flex-direction: column; gap: 8px; }
+        .tw-d-h3 { font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: #3A4A3F; opacity: 0.6; margin: 0; }
+        .tw-d-sub { opacity: 0.6; font-weight: 600; letter-spacing: 0.04em; }
+        .tw-d-big { font-size: clamp(40px,5vw,60px); font-weight: 200; letter-spacing: -0.04em; line-height: 0.9; }
+        .tw-d-big span { font-size: 0.4em; font-weight: 500; opacity: 0.6; }
+        .tw-d-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .tw-d-cell { background: #FAFBF6; border: 1px solid #E5E8E0; border-radius: 10px; padding: 9px 11px; display: flex; flex-direction: column; gap: 2px; }
+        .tw-d-k { font-size: 10px; font-weight: 600; color: #3A4A3F; opacity: 0.65; }
+        .tw-d-v { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+        .tw-spark { width: 100%; height: 56px; display: block; }
+        .tw-spark-empty { font-size: 12px; opacity: 0.5; padding: 18px 0; text-align: center; }
+        .tw-d-proj { font-size: 13px; color: #3A4A3F; }
+        .tw-d-proj strong { font-weight: 800; }
+        .tw-d-cap { display: flex; flex-direction: column; gap: 8px; }
+        .tw-d-cap-row { display: flex; justify-content: space-between; font-size: 14px; }
+        .tw-d-cap-bar { display: flex; height: 30px; border-radius: 8px; overflow: hidden; }
+        .tw-d-cap-m { background: #4A7C59; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; padding-left: 10px; }
+        .tw-d-cap-f { background: #6FAF82; color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; padding-left: 10px; }
+        .tw-d-desc { font-size: 12px; color: #3A4A3F; opacity: 0.7; }
+        .tw-d-reco-box { background: #FAFBF6; border: 1px solid #C9DDB6; border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 3px; }
+        .tw-d-reco-wc { font-size: 22px; font-weight: 700; color: #4A7C59; letter-spacing: -0.02em; }
+        .tw-d-reco-m { font-size: 13px; color: #3A4A3F; font-variant-numeric: tabular-nums; }
+
         @media (max-width: 760px) {
           .tw-dex { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(4, 1fr); }
-          .tw-reco { flex-wrap: wrap; gap: 10px; }
-          .tw-reco-m { width: 100%; margin-left: 0; justify-content: space-between; }
         }
         @media (prefers-reduced-motion: reduce) {
-          .tw-node, .tw-you, .tw-dash, .tw-pulse, .tw-critpulse, .tw-cd { animation: none; }
+          .tw-node, .tw-you, .tw-dash, .tw-pulse, .tw-critpulse { animation: none; }
         }
       `}</style>
     </div>
