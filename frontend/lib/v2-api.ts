@@ -443,6 +443,7 @@ export const api = {
   shows: () => getJson<ShowsResponse>('/api/v1/shows'),
   alerts: () => getJson<Alert[]>('/api/v1/alerts'),
   health: () => getJson<{ status: string }>('/api/v1/health'),
+  ingestStatus: () => getJson<any>('/api/v1/ingest/status'),
 
   /** Schema correcto do backend: { message: string } */
   chat: (message: string) =>
