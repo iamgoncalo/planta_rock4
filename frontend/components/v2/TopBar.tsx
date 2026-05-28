@@ -15,16 +15,15 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { href: '/v2',           label: 'Início',     hint: 'G H' },
-  { href: '/v2/twin',      label: 'Twin',       hint: 'G T' },
-  { href: '/v2/sensors',   label: 'Sensores',   hint: 'G S' },
-  { href: '/v2/chat2', label: 'Chat' }, { href: '/v2/shows',     label: 'Shows',      hint: 'G W' },
-  { href: '/v2/operations',label: 'Operações',  hint: 'G O' },
-  { href: '/v2/cleaning',  label: 'Limpeza',    hint: 'G L' },
-  { href: '/v2/incidents', label: 'Incidentes', hint: 'G I' },
-  { href: '/v2/scor',      label: 'SCOR',       hint: 'G C' },
-  { href: '/v2/pipelines', label: 'Pipelines',  hint: 'G P' },
-  { href: '/v2/chat',      label: 'Chat',       hint: 'G ?' },
+  { href: '/v2/chat2',      label: 'Chat',       hint: 'G ?' },
+  { href: '/v2/twin',       label: 'Twin',       hint: 'G T' },
+  { href: '/v2/sensors',    label: 'Sensores',   hint: 'G S' },
+  { href: '/v2/shows',      label: 'Shows',      hint: 'G W' },
+  { href: '/v2/operations', label: 'Operações',  hint: 'G O' },
+  { href: '/v2/cleaning',   label: 'Limpeza',    hint: 'G L' },
+  { href: '/v2/incidents',  label: 'Incidentes', hint: 'G I' },
+  { href: '/v2/scor',       label: 'SCOR',       hint: 'G C' },
+  { href: '/v2/pipelines',  label: 'Pipelines',  hint: 'G P' },
 ];
 
 function readRecents(): string[] {
