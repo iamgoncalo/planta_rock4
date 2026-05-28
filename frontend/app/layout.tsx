@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
-import BottomNav from '../components/BottomNav';
-
 export const viewport: Viewport = {
   themeColor: '#ffffff',
   width: 'device-width',
@@ -35,8 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="pt">
       <body style={{ paddingBottom: 'var(--nav-h)' }}>
         {children}
-        <BottomNav />
-      </body>
+        </body>
     </html>
   );
 }

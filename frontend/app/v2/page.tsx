@@ -1,427 +1,327 @@
 'use client';
 
-import { useEffect, useRef, useState, useMemo } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import {
-  api,
-  aggregate,
-  CLUSTERS,
-  TOTAL_LUGARES,
-  fmtNumber,
-  type ClusterLive,
-  type StateResponse,
-} from '@/lib/v2-api';
-import ClusterCard from '@/components/v2/ClusterCard';
-import Sparkline from '@/components/v2/Sparkline';
 
-const REFRESH_MS = 10_000;
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://api.plantarockinrio.com';
+
+const CLUSTER_ORDER = ['wc-01', 'wc-02', 'wc-03', 'wc-04', 'wc-05', 'wc-06', 'wc-07', 'wc-08'];
+const UNISEX = new Set(['wc-05', 'wc-06']);
+
+interface ClusterPayload {
+  cluster_id: string;
+  ts: number;
+  params: {
+    pessoas_estimadas: number;
+    ocupacao_instantanea: number;
+    is_unissex?: boolean;
+    capacidade_total?: number;
+    fila_atual?: number;
+    estado_sensor?: string;
+  };
+}
+
+interface Snapshot {
+  clusters: ClusterPayload[];
+  kpis: { kpi_01: number; kpi_02: number; kpi_03: number; kpi_04: number };
+}
 
 export default function HomePage() {
-  const [state, setState] = useState<StateResponse | null>(null);
-  const [clusters, setClusters] = useState<ClusterLive[]>([]);
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const sparkBuffers = useRef<Map<string, number[]>>(new Map());
-  const kpiPplBuf = useRef<number[]>([]);
-  const kpiOccBuf = useRef<number[]>([]);
-  const kpiFlowBuf = useRef<number[]>([]);
+  const [snap, setSnap] = useState<Snapshot | null>(null);
+  const [streaming, setStreaming] = useState(false);
+  const [tickCount, setTickCount] = useState(0);
 
   useEffect(() => {
-    let cancelled = false;
+    let es: EventSource | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const fetchTick = async () => {
+    const connect = () => {
       try {
-        const data = await api.state();
-        if (cancelled) return;
-        setState(data);
-        setError(null);
-        setLastUpdate(new Date());
-        const agg = aggregate(data.sections ?? []);
-        setClusters(agg);
-        for (const c of agg) {
-          const buf = sparkBuffers.current.get(c.meta.id) ?? [];
-          buf.push(c.ocupacao);
-          while (buf.length > 30) buf.shift();
-          sparkBuffers.current.set(c.meta.id, buf);
-        }
-        const totalPpl = agg.reduce((a, c) => a + c.pessoas, 0);
-        const avgOcc = data.kpis?.avg_ocupacao_pct ?? 0;
-        const flowIdx = Math.max(0, Math.round(100 - avgOcc));
-        kpiPplBuf.current.push(totalPpl);
-        kpiOccBuf.current.push(avgOcc);
-        kpiFlowBuf.current.push(flowIdx);
-        while (kpiPplBuf.current.length > 30) kpiPplBuf.current.shift();
-        while (kpiOccBuf.current.length > 30) kpiOccBuf.current.shift();
-        while (kpiFlowBuf.current.length > 30) kpiFlowBuf.current.shift();
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'erro');
-        }
-      }
+        es = new EventSource(`${API_BASE}/api/v1/telemetry/clusters/stream`);
+        es.onopen = () => setStreaming(true);
+        es.onmessage = (ev) => {
+          try {
+            const data: Snapshot = JSON.parse(ev.data);
+            setSnap(data);
+            setTickCount((c) => c + 1);
+          } catch {}
+        };
+        es.onerror = () => {
+          setStreaming(false);
+          if (es) es.close();
+          retryTimer = setTimeout(connect, 3000);
+        };
+      } catch {}
     };
-
-    fetchTick();
-    const iv = setInterval(fetchTick, REFRESH_MS);
+    connect();
     return () => {
-      cancelled = true;
-      clearInterval(iv);
+      if (es) es.close();
+      if (retryTimer) clearTimeout(retryTimer);
+      setStreaming(false);
     };
   }, []);
 
-  // Metrics
-  const totalPeople = useMemo(
-    () => clusters.reduce((a, c) => a + c.pessoas, 0),
-    [clusters],
-  );
-  const avgOcc = state?.kpis?.avg_ocupacao_pct ?? 0;
-  const critCount = clusters.filter((c) => c.status === 'critical').length;
-  const warnCount = clusters.filter((c) => c.status === 'warning').length;
-  const totalFila = state?.kpis?.total_fila ?? 0;
-  const flowIndex = Math.max(0, Math.round(100 - avgOcc));
-  const freeCount = Math.round(TOTAL_LUGARES * (1 - avgOcc / 100));
+  // Sort clusters
+  const clusters = (() => {
+    if (!snap) return [];
+    const m = new Map(snap.clusters.map((c) => [c.cluster_id, c]));
+    return CLUSTER_ORDER.map((id) => m.get(id)).filter(Boolean) as ClusterPayload[];
+  })();
+
+  const totalPessoas = clusters.reduce((a, c) => a + (c.params.pessoas_estimadas || 0), 0);
+  const avgOcc = snap?.kpis?.kpi_02 ?? 0;
+  const flowIdx = snap?.kpis?.kpi_01 ?? 0;
+  const criticos = snap?.kpis?.kpi_03 ?? 0;
 
   return (
-    <div>
-      {/* ============ HERO ============ */}
-      <section
-        style={{
-          padding: '48px 32px 32px',
-          background:
-            'linear-gradient(165deg, #FFFFFF 0%, #FAFAF7 60%, #EDF4EF 100%)',
-          borderBottom: '1px solid var(--border)',
-          position: 'relative',
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          aria-hidden
-          style={{
-            position: 'absolute',
-            top: -40,
-            right: -100,
-            width: 480,
-            height: 480,
-            borderRadius: '50%',
-            background:
-              'radial-gradient(circle, rgba(46,125,79,0.10) 0%, transparent 65%)',
-            pointerEvents: 'none',
-          }}
-        />
-        <div className="section-label">
-          Rock in Rio Lisboa 2026 · Parque Tejo · 4 dias · 320 000+ visitantes
-        </div>
-        <h1
-          className="serif"
-          style={{
-            fontSize: 'clamp(34px, 5vw, 56px)',
-            fontWeight: 400,
-            lineHeight: 1.08,
-            marginBottom: 16,
-            maxWidth: 980,
-            color: 'var(--ink)',
-            position: 'relative',
-            zIndex: 1,
-          }}
-        >
-          <span style={{ color: 'var(--green)', fontWeight: 600 }}>
-            {fmtNumber(totalPeople || 100_000)}+
-          </span>{' '}
-          pessoas.{' '}
-          <em style={{ fontStyle: 'italic', color: 'var(--muted)' }}>
-            1 137 lugares WC.
-          </em>{' '}
-          <strong style={{ fontWeight: 700 }}>Em tempo real.</strong>
-        </h1>
-        <p
-          style={{
-            fontSize: 16,
-            color: 'var(--muted)',
-            lineHeight: 1.65,
-            maxWidth: 720,
-            marginBottom: 24,
-            position: 'relative',
-            zIndex: 1,
-          }}
-        >
-          PlantaOS conta pessoas em cada um dos 8 clusters de WC do Parque Tejo,
-          mede o fluxo de entrada e saída ao minuto, e recomenda às pessoas a
-          casa de banho mais rápida e mais segura agora mesmo. Sem rastreio
-          individual. Sem MAC guardado. Só fluxos.
-        </p>
+    <div className="page-full">
+      {/* HERO — números editoriais grandes */}
+      <section style={{ marginBottom: 'clamp(20px, 3vw, 36px)' }}>
         <div
           style={{
             display: 'flex',
-            gap: 10,
+            justifyContent: 'space-between',
+            alignItems: 'flex-end',
+            gap: 16,
             flexWrap: 'wrap',
-            position: 'relative',
-            zIndex: 1,
+            marginBottom: 24,
           }}
         >
-          <Link href="/v2/twin" className="btn btn-primary">
-            Abrir Digital Twin
-          </Link>
-          <Link href="/v2/shows" className="btn btn-outline">
-            Simular shows
-          </Link>
-          <Link href="/v2/operations" className="btn btn-outline">
-            Operações
-          </Link>
-          <Link href="/v2/chat" className="btn btn-outline">
-            Chat AI
-          </Link>
+          <div>
+            <div className="section-label">Rock in Rio Lisboa · Parque Tejo · 20–28 Jun 2026</div>
+            <h1
+              className="display"
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 'clamp(40px, 6vw, 84px)',
+                lineHeight: 0.95,
+                letterSpacing: '-0.035em',
+                fontWeight: 500,
+                marginTop: 4,
+              }}
+            >
+              Em tempo real.
+            </h1>
+          </div>
+          <span className={streaming ? 'pill pill-live' : 'pill pill-sim'}>
+            {streaming ? 'STREAM AO SEGUNDO' : 'A LIGAR'}
+          </span>
         </div>
-      </section>
 
-      {/* ============ KPI ROW ============ */}
-      <section
-        style={{
-          padding: '0 32px',
-          marginTop: -24,
-          position: 'relative',
-          zIndex: 2,
-        }}
-      >
+        {/* 4 KPIs grandes editoriais */}
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: 12,
-            background: 'var(--card)',
-            border: '1px solid var(--border)',
-            borderRadius: 16,
-            padding: 4,
-            boxShadow: 'var(--shadow-md)',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+            gap: 'clamp(12px, 2vw, 28px)',
+            borderTop: '1px solid var(--border)',
+            paddingTop: 'clamp(14px, 2vw, 22px)',
           }}
         >
-          <KpiTile
-            label="Pessoas estimadas"
-            value={fmtNumber(totalPeople)}
-            spark={kpiPplBuf.current}
-          />
-          <KpiTile
-            label="Ocupação média"
-            value={`${Math.round(avgOcc)}%`}
-            spark={kpiOccBuf.current}
-            color={
-              avgOcc >= 80
-                ? 'var(--critical)'
-                : avgOcc >= 60
-                ? 'var(--amber)'
-                : 'var(--green)'
-            }
-          />
-          <KpiTile
-            label="Lugares livres"
-            value={fmtNumber(Math.max(0, freeCount))}
-            spark={[]}
-            color="var(--green)"
-          />
-          <KpiTile
-            label="Críticos"
-            value={String(critCount)}
-            spark={[]}
-            color={critCount > 0 ? 'var(--critical)' : 'var(--green)'}
-          />
-          <KpiTile
-            label="Avisos"
-            value={String(warnCount)}
-            spark={[]}
-            color={warnCount > 0 ? 'var(--amber)' : 'var(--green)'}
-          />
-          <KpiTile
-            label="Flow Index"
-            value={`${flowIndex}/100`}
-            spark={kpiFlowBuf.current}
-            color={flowIndex >= 60 ? 'var(--green)' : flowIndex >= 35 ? 'var(--amber)' : 'var(--critical)'}
-          />
-          <KpiTile
-            label="Fila total"
-            value={fmtNumber(totalFila)}
-            spark={[]}
-          />
+          <Kpi label="Pessoas estimadas" value={totalPessoas} accent />
+          <Kpi label="Ocupação média" value={`${avgOcc.toFixed(0)}%`} />
+          <Kpi label="Índice de fluxo" value={flowIdx} />
+          <Kpi label="Críticos" value={criticos} alert={criticos > 0} />
         </div>
       </section>
 
-      {/* ============ 8 WC GRID ============ */}
-      <section style={{ padding: '40px 32px 32px' }}>
+      {/* 8 CLUSTERS — grid 4×2 compacto */}
+      <section style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         <div
           style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'baseline',
-            marginBottom: 20,
-            flexWrap: 'wrap',
-            gap: 16,
+            marginBottom: 12,
           }}
         >
-          <div>
-            <div className="section-label" style={{ marginBottom: 4 }}>
-              Inteligência por cluster · ao vivo
-            </div>
-            <h2
-              className="serif"
-              style={{
-                fontSize: 28,
-                fontWeight: 500,
-                color: 'var(--ink)',
-                letterSpacing: '-0.02em',
-              }}
-            >
-              8 clusters · 1 137 lugares
-            </h2>
-          </div>
-          <div
-            style={{
-              fontSize: 12,
-              color: 'var(--faint)',
-              display: 'flex',
-              gap: 14,
-              alignItems: 'center',
-              flexWrap: 'wrap',
-            }}
+          <div className="section-label">8 clusters · 1 137 lugares</div>
+          <span
+            className="mono"
+            style={{ fontSize: 11, color: 'var(--faint)' }}
           >
-            <Legend dot="var(--green-light)" label="Livre <60%" />
-            <Legend dot="var(--amber)" label="Atenção 60–80%" />
-            <Legend dot="var(--critical)" label="Crítico >80%" />
-          </div>
+            tick #{tickCount}
+          </span>
         </div>
+
         <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(290px, 1fr))',
-            gap: 14,
-          }}
+          className="grid grid-8"
+          style={{ alignContent: 'start' }}
         >
-          {(clusters.length ? clusters : CLUSTERS.map((meta) => ({
-            meta,
-            ocupacao: 0,
-            pessoas: 0,
-            homens: meta.isUnisex ? null : 0,
-            mulheres: meta.isUnisex ? null : 0,
-            filaTotal: 0,
-            esperaMin: 0,
-            entradas: 0,
-            saidas: 0,
-            confianca: 0.5,
-            simulated: false,
-            status: 'ok' as const,
-          }))).map((c) => (
-            <Link
-              key={c.meta.id}
-              href={`/v2/twin?cluster=${c.meta.id}`}
-              style={{ textDecoration: 'none', color: 'inherit' }}
-            >
-              <ClusterCard
-                c={c}
-                spark={sparkBuffers.current.get(c.meta.id) ?? []}
-                onClick={() => {}}
+          {clusters.length === 0 &&
+            CLUSTER_ORDER.map((id) => (
+              <div
+                key={id}
+                style={{
+                  background: 'var(--bg-soft)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--radius)',
+                  padding: 18,
+                  minHeight: 90,
+                }}
               />
-            </Link>
-          ))}
+            ))}
+          {clusters.map((c) => {
+            const isUni = UNISEX.has(c.cluster_id);
+            const occ = c.params.ocupacao_instantanea ?? 0;
+            const occColor =
+              occ >= 80 ? 'var(--amber)' : occ >= 60 ? '#A85D00' : 'var(--green-dark)';
+            return (
+              <Link
+                key={c.cluster_id}
+                href={`/v2/scor`}
+                style={{
+                  background: 'white',
+                  border: '1px solid var(--border)',
+                  borderLeft: `3px solid ${isUni ? '#7A4A8E' : 'var(--green-dark)'}`,
+                  borderRadius: 'var(--radius)',
+                  padding: '14px 16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  textDecoration: 'none',
+                  color: 'inherit',
+                  transition: 'border-color 0.18s, box-shadow 0.18s, transform 0.18s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.boxShadow = 'var(--shadow-md)';
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.boxShadow = 'none';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: 'clamp(15px, 1.4vw, 18px)',
+                        fontWeight: 600,
+                        letterSpacing: '-0.015em',
+                        color: 'var(--ink)',
+                      }}
+                    >
+                      {c.cluster_id.toUpperCase()}
+                    </div>
+                    <div
+                      className="mono"
+                      style={{
+                        fontSize: 9,
+                        color: 'var(--muted)',
+                        letterSpacing: '0.1em',
+                        textTransform: 'uppercase',
+                        marginTop: 1,
+                      }}
+                    >
+                      {isUni ? 'unissex' : 'masc + fem'}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 'clamp(18px, 2vw, 24px)',
+                      fontWeight: 600,
+                      letterSpacing: '-0.02em',
+                      color: occColor,
+                      lineHeight: 1,
+                    }}
+                  >
+                    {occ}
+                    <span style={{ fontSize: '0.55em', marginLeft: 1, color: 'var(--muted)' }}>%</span>
+                  </div>
+                </div>
+
+                {/* Mini bar */}
+                <div
+                  style={{
+                    height: 4,
+                    background: 'var(--bg-soft)',
+                    borderRadius: 999,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${Math.min(100, occ)}%`,
+                      height: '100%',
+                      background: occColor,
+                      transition: 'width 0.5s ease',
+                    }}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: 11,
+                    color: 'var(--muted)',
+                    fontFamily: 'var(--font-mono)',
+                  }}
+                >
+                  <span>{c.params.pessoas_estimadas} pessoas</span>
+                  {c.params.fila_atual !== undefined && (
+                    <span>fila {c.params.fila_atual}</span>
+                  )}
+                </div>
+              </Link>
+            );
+          })}
         </div>
       </section>
 
-      {/* ============ STATUS BAR ============ */}
-      <section
+      {/* Footer dicreto com links */}
+      <footer
         style={{
-          padding: '16px 32px 40px',
+          marginTop: 'clamp(16px, 2vw, 28px)',
+          paddingTop: 14,
+          borderTop: '1px solid var(--border)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 12,
+          gap: 14,
           fontSize: 12,
           color: 'var(--muted)',
-          borderTop: '1px solid var(--border)',
-          marginTop: 8,
+          flexWrap: 'wrap',
         }}
       >
-        <div className="mono">
-          {error ? (
-            <span style={{ color: 'var(--critical)' }}>● backend offline</span>
-          ) : (
-            <span style={{ color: 'var(--green)' }}>
-              ● actualizado{' '}
-              {lastUpdate
-                ? lastUpdate.toLocaleTimeString('pt-PT')
-                : '—'}
-            </span>
-          )}
+        <div className="mono" style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+          FCT 2025.00020.AIVLAB.DEUCALION
         </div>
-        <div className="mono" style={{ fontSize: 11, color: 'var(--faint)' }}>
-          api.plantarockinrio.com · publisher SCOR · refresh 10 s
+        <div style={{ display: 'flex', gap: 18, fontSize: 12 }}>
+          <Link href="/v2/twin" style={{ color: 'var(--muted)' }}>Digital twin →</Link>
+          <Link href="/v2/scor" style={{ color: 'var(--muted)' }}>SCOR live →</Link>
+          <Link href="/v2/cleaning" style={{ color: 'var(--muted)' }}>Limpeza →</Link>
         </div>
-      </section>
+      </footer>
     </div>
   );
 }
 
-function KpiTile({
-  label,
-  value,
-  spark,
-  color = 'var(--ink)',
-}: {
+function Kpi({ label, value, accent, alert }: {
   label: string;
-  value: string;
-  spark: number[];
-  color?: string;
+  value: number | string;
+  accent?: boolean;
+  alert?: boolean;
 }) {
   return (
-    <div
-      style={{
-        background: 'var(--card)',
-        padding: '16px 18px 14px',
-        borderRadius: 12,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-        minHeight: 110,
-      }}
-    >
+    <div>
+      <div className="kpi-label">{label}</div>
       <div
+        className="kpi-value"
         style={{
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: '0.14em',
-          textTransform: 'uppercase',
-          color: 'var(--faint)',
+          color: alert ? 'var(--amber)' : accent ? 'var(--green-dark)' : 'var(--ink)',
+          marginTop: 4,
         }}
       >
-        {label}
-      </div>
-      <div
-        className="serif"
-        style={{
-          fontSize: 36,
-          fontWeight: 500,
-          color,
-          lineHeight: 1,
-          letterSpacing: '-0.02em',
-        }}
-      >
-        {value}
-      </div>
-      <div style={{ marginTop: 'auto' }}>
-        <Sparkline values={spark} width={180} height={26} color={color} />
+        {typeof value === 'number' ? value.toLocaleString('pt-PT') : value}
       </div>
     </div>
-  );
-}
-
-function Legend({ dot, label }: { dot: string; label: string }) {
-  return (
-    <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-      <span
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: '50%',
-          background: dot,
-          display: 'inline-block',
-        }}
-      />
-      {label}
-    </span>
   );
 }

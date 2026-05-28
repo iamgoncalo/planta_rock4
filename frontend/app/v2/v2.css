@@ -1,50 +1,60 @@
 /* ════════════════════════════════════════════════════════════════════
-   PlantaOS v11 · v2.css · Design minimalista (Zara-inspired)
-   - Tipografia generosa
-   - Espaço branco
-   - Paleta restrita: branco, preto, verde discreto
-   - Sem scroll vertical na maioria das páginas
+   PlantaOS v12 · Editorial · Oxman-inspired
+   - Tipografia Inter sans-serif (DM Sans fallback)
+   - Sizes em clamp() com vw para escala fluida
+   - Pages que cabem num viewport quando possível
+   - Sem bottom nav. Sem overflow horizontal.
    ════════════════════════════════════════════════════════════════════ */
+
+@import url('https://rsms.me/inter/inter.css');
 
 :root {
   --bg:           #FFFFFF;
   --bg-soft:      #FAFAF8;
   --ink:          #0D1A0F;
   --muted:        #6B7268;
-  --faint:        #A0A39A;
+  --faint:        #B7B9B0;
 
   --green:        #2E7D4F;
   --green-dark:   #1B3A21;
   --green-light:  #6FAF82;
   --green-pale:   #EDF4EF;
-  --green-accent: #4A7C59;
 
-  --border:        #E8E6E0;
+  --border:        #ECE9E2;
   --border-strong: #C9C6BD;
 
-  --amber:  #C25A1A;
+  --amber:      #C25A1A;
   --amber-soft: #FFF2E0;
 
   --shadow-sm: 0 1px 2px rgba(13, 26, 15, 0.04);
-  --shadow-md: 0 4px 16px rgba(13, 26, 15, 0.06);
-  --shadow-lg: 0 12px 40px rgba(13, 26, 15, 0.08);
+  --shadow-md: 0 8px 24px rgba(13, 26, 15, 0.08);
+  --shadow-lg: 0 20px 60px rgba(13, 26, 15, 0.10);
 
   --radius-sm: 6px;
-  --radius:    10px;
-  --radius-lg: 16px;
+  --radius:    12px;
+  --radius-lg: 20px;
   --radius-pill: 999px;
 
-  --header-h:    64px;
-  --searchbar-h: 80px;
+  --header-h:    72px;
+  --searchbar-h: 88px;
 
-  --font-serif: var(--font-cormorant), 'Cormorant Garamond', Georgia, serif;
-  --font-sans:  var(--font-dm-sans), 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono:  var(--font-dm-mono), 'DM Mono', 'JetBrains Mono', ui-monospace, monospace;
+  /* SANS-SERIF Oxman-style */
+  --font-display: 'Inter', 'DM Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-sans:    'Inter', 'DM Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono:    var(--font-dm-mono), 'JetBrains Mono', ui-monospace, monospace;
+
+  /* DEPRECATED — mantido para compat com páginas que ainda usam .serif */
+  --font-serif:   'Inter', 'DM Sans', sans-serif;
 }
 
-/* ──── Reset suave ───────────────────────────────────────────────── */
+/* ──── Reset ─────────────────────────────────────────────────────── */
 * {
   box-sizing: border-box;
+}
+
+html {
+  /* Pode haver scroll na página (não global) mas nunca horizontal */
+  overflow-x: hidden;
 }
 
 html, body {
@@ -53,32 +63,79 @@ html, body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: 15px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';  /* Inter alternates */
 }
 
-body {
-  /* Sem scroll horizontal nunca */
-  overflow-x: hidden;
-}
+body { overflow-x: hidden; }
 
 /* ──── Layout root ───────────────────────────────────────────────── */
+.v2-root { background: var(--bg); }
+
 .v2-content {
-  /* Altura disponível = viewport menos header e searchbar */
-  min-height: calc(100vh - var(--header-h));
   padding-top: var(--header-h);
   padding-bottom: calc(var(--searchbar-h) + 24px);
   background: var(--bg);
+  min-height: 100vh;
 }
 
-/* ──── Tipografia ────────────────────────────────────────────────── */
-.serif {
-  font-family: var(--font-serif);
+/* ──── Tipografia EDITORIAL — Oxman style ───────────────────────── */
+h1, h2, h3, h4, .serif, .display {
+  font-family: var(--font-display);
   font-weight: 500;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.025em;
+  color: var(--ink);
+  margin: 0;
+  line-height: 0.98;
+}
+
+h1, .display-1 {
+  font-size: clamp(48px, 9vw, 144px);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 0.92;
+}
+
+h2, .display-2 {
+  font-size: clamp(36px, 6vw, 88px);
+  letter-spacing: -0.035em;
+  line-height: 0.96;
+  font-weight: 500;
+}
+
+h3, .display-3 {
+  font-size: clamp(24px, 3.5vw, 44px);
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  font-weight: 500;
+}
+
+h4 {
+  font-size: clamp(18px, 2vw, 22px);
+  font-weight: 600;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+  margin-bottom: 14px;
 }
 
 .mono {
@@ -86,40 +143,9 @@ body {
   letter-spacing: 0.02em;
 }
 
-h1, h2, h3, h4 {
-  font-family: var(--font-serif);
-  font-weight: 500;
-  letter-spacing: -0.015em;
-  color: var(--ink);
-  margin: 0;
-}
-
-h1 { font-size: clamp(32px, 5vw, 56px); line-height: 1.05; }
-h2 { font-size: clamp(22px, 3vw, 32px); line-height: 1.15; }
-h3 { font-size: clamp(16px, 2vw, 20px); line-height: 1.25; }
-
-.section-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--muted);
-  font-weight: 500;
-  margin-bottom: 12px;
-}
-
-.eyebrow {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--green);
-  font-weight: 600;
-}
-
 .kicker {
   color: var(--muted);
-  font-size: 13px;
+  font-size: clamp(14px, 1.4vw, 17px);
   line-height: 1.5;
   max-width: 65ch;
 }
@@ -129,8 +155,8 @@ h3 { font-size: clamp(16px, 2vw, 20px); line-height: 1.25; }
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 18px;
-  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+  padding: clamp(14px, 1.8vw, 22px);
+  transition: border-color 0.22s, box-shadow 0.22s, transform 0.22s;
 }
 
 .card:hover {
@@ -138,13 +164,8 @@ h3 { font-size: clamp(16px, 2vw, 20px); line-height: 1.25; }
   box-shadow: var(--shadow-md);
 }
 
-.card-soft {
-  background: var(--bg-soft);
-}
-
-.card-accent {
-  border-left: 3px solid var(--green);
-}
+.card-soft { background: var(--bg-soft); }
+.card-accent { border-left: 3px solid var(--green); }
 
 /* ──── Pills ─────────────────────────────────────────────────────── */
 .pill {
@@ -152,11 +173,11 @@ h3 { font-size: clamp(16px, 2vw, 20px); line-height: 1.25; }
   align-items: center;
   gap: 5px;
   font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  padding: 3px 9px;
+  padding: 4px 10px;
   border-radius: var(--radius-pill);
   border: 1px solid transparent;
   white-space: nowrap;
@@ -194,15 +215,15 @@ h3 { font-size: clamp(16px, 2vw, 20px); line-height: 1.25; }
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 9px 18px;
+  padding: 11px 20px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--ink);
   background: var(--ink);
   color: white;
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 500;
-  letter-spacing: 0.01em;
+  letter-spacing: -0.005em;
   text-decoration: none;
   cursor: pointer;
   transition: all 0.18s;
@@ -211,6 +232,11 @@ h3 { font-size: clamp(16px, 2vw, 20px); line-height: 1.25; }
 .btn:hover {
   transform: translateY(-1px);
   box-shadow: var(--shadow-md);
+}
+
+.btn-green {
+  background: var(--green-dark);
+  border-color: var(--green-dark);
 }
 
 .btn-ghost {
@@ -227,25 +253,41 @@ h3 { font-size: clamp(16px, 2vw, 20px); line-height: 1.25; }
 /* ──── Grid utilities ────────────────────────────────────────────── */
 .grid {
   display: grid;
-  gap: 16px;
+  gap: clamp(10px, 1vw, 16px);
 }
 
-.grid-2  { grid-template-columns: repeat(2, 1fr); }
-.grid-3  { grid-template-columns: repeat(3, 1fr); }
-.grid-4  { grid-template-columns: repeat(4, 1fr); }
+.grid-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-4 { grid-template-columns: repeat(4, 1fr); }
+.grid-8 { grid-template-columns: repeat(4, 1fr); }  /* desktop: 4x2 */
 
-@media (max-width: 900px) {
-  .grid-3, .grid-4 { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 560px) {
-  .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+@media (max-width: 1024px) {
+  .grid-4, .grid-8 { grid-template-columns: repeat(3, 1fr); }
 }
 
-/* ──── Página containers ─────────────────────────────────────────── */
+@media (max-width: 720px) {
+  .grid-3, .grid-4, .grid-8 { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 480px) {
+  .grid-2, .grid-3, .grid-4, .grid-8 { grid-template-columns: 1fr; }
+}
+
+/* ──── Page container ───────────────────────────────────────────── */
 .page {
-  max-width: 1400px;
+  max-width: 1500px;
   margin: 0 auto;
-  padding: 32px 24px;
+  padding: clamp(20px, 3vw, 40px) clamp(18px, 3vw, 32px);
+}
+
+.page-full {
+  /* Para páginas que devem caber em 1 viewport */
+  max-width: 1500px;
+  margin: 0 auto;
+  padding: clamp(20px, 2.5vw, 32px) clamp(18px, 3vw, 32px);
+  min-height: calc(100vh - var(--header-h) - var(--searchbar-h) - 36px);
+  display: flex;
+  flex-direction: column;
 }
 
 .page-header {
@@ -253,17 +295,15 @@ h3 { font-size: clamp(16px, 2vw, 20px); line-height: 1.25; }
   justify-content: space-between;
   align-items: flex-end;
   gap: 24px;
-  margin-bottom: 28px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--border);
+  margin-bottom: clamp(18px, 2.5vw, 32px);
 }
 
 @media (max-width: 720px) {
   .page-header {
     flex-direction: column;
     align-items: flex-start;
+    gap: 12px;
   }
-  .page { padding: 24px 18px; }
 }
 
 /* ──── Tabelas limpas ────────────────────────────────────────────── */
@@ -276,17 +316,17 @@ h3 { font-size: clamp(16px, 2vw, 20px); line-height: 1.25; }
 .table-clean th {
   text-align: left;
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--muted);
-  padding: 10px 12px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--border-strong);
 }
 
 .table-clean td {
-  padding: 12px;
+  padding: 14px;
   border-bottom: 1px solid var(--border);
   color: var(--ink);
 }
@@ -295,56 +335,64 @@ h3 { font-size: clamp(16px, 2vw, 20px); line-height: 1.25; }
   background: var(--bg-soft);
 }
 
-/* ──── KPI numbers grandes ───────────────────────────────────────── */
+/* ──── KPI editorial ─────────────────────────────────────────────── */
 .kpi {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .kpi-value {
-  font-family: var(--font-serif);
-  font-size: clamp(32px, 4vw, 48px);
+  font-family: var(--font-display);
+  font-size: clamp(40px, 6vw, 88px);
   font-weight: 500;
-  line-height: 1;
+  line-height: 0.92;
   color: var(--ink);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
 }
 
 .kpi-label {
   font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.15em;
+  font-size: 10.5px;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--muted);
+  font-weight: 500;
 }
 
 .kpi-trend {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
-  margin-top: 2px;
+  font-family: var(--font-mono);
 }
 
 /* ──── Links ─────────────────────────────────────────────────────── */
 a {
-  color: var(--green);
+  color: var(--ink);
   text-decoration: none;
 }
 
-a:hover {
+a.link {
+  color: var(--green-dark);
   text-decoration: underline;
   text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+a.link:hover {
+  text-decoration-thickness: 2px;
 }
 
 /* ──── Inputs ────────────────────────────────────────────────────── */
 input, textarea, select {
   font-family: inherit;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--ink);
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 10px 14px;
+  padding: 11px 16px;
   outline: none;
   transition: border-color 0.18s;
 }
@@ -354,7 +402,7 @@ input:focus, textarea:focus, select:focus {
 }
 
 /* ──── Scrollbar discreta ────────────────────────────────────────── */
-::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
   background: var(--border);
@@ -365,16 +413,25 @@ input:focus, textarea:focus, select:focus {
 /* ──── Helpers ───────────────────────────────────────────────────── */
 .muted { color: var(--muted); }
 .ink   { color: var(--ink); }
-.green { color: var(--green); }
+.green { color: var(--green-dark); }
 .amber { color: var(--amber); }
+.center { text-align: center; }
 
 .divider {
   height: 1px;
   background: var(--border);
   border: none;
-  margin: 24px 0;
+  margin: clamp(18px, 3vw, 36px) 0;
 }
 
 .spacer-sm { height: 12px; }
-.spacer    { height: 24px; }
-.spacer-lg { height: 48px; }
+.spacer    { height: 28px; }
+.spacer-lg { height: 56px; }
+
+/* ──── DESLIGAR BottomNav antigo se algum CSS o tornar visível ──── */
+.bottom-nav,
+.mobile-tabbar,
+[class*="BottomNav"],
+[class*="bottomNav"] {
+  display: none !important;
+}
