@@ -39,6 +39,7 @@ from app.routers.forecast import router as forecast_router
 from app.routers.ingest import router as ingest_router
 from app.routers.fleet import router as fleet_router
 from app.routers.sensor_cmd import router as sensor_cmd_router
+from app.routers.envs import router as envs_router
 
 logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
@@ -145,6 +146,7 @@ def create_app() -> FastAPI:
     app.include_router(ingest_router)
     app.include_router(fleet_router)
     app.include_router(sensor_cmd_router)
+    app.include_router(envs_router)
     app.include_router(cleaning_router)
     app.include_router(staff_router)
     app.include_router(incidents_router)
