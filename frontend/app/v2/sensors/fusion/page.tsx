@@ -51,6 +51,9 @@ export default function SensorConsole(){
   const [termInput,setTermInput]=useState('');
   const wsRef=useRef<WebSocket|null>(null);
   const termRef=useRef<HTMLDivElement>(null);
+  const [lastUpdate,setLastUpdate]=useState<Date|null>(null);
+  const [loading,setLoading]=useState(true);
+  const [switching,setSwitching]=useState(false);
 
   // ler modo inicial
   useEffect(()=>{api.fleetMode().then((r:any)=>{if(r?.mode)setMode(r.mode);}).catch(()=>{});},[]);
@@ -68,7 +71,9 @@ export default function SensorConsole(){
         const fu:Record<string,any>={};
         CLUSTERS.forEach((c,i)=>{if(rs[i])fu[c]=rs[i];});
         setFusions(fu);
-      }catch{}
+        setLastUpdate(new Date());
+        setLoading(false);
+      }catch{setLoading(false);}
     };
     load();const iv=setInterval(load,REFRESH_MS);
     return()=>{cancel=true;clearInterval(iv);};
@@ -83,8 +88,10 @@ export default function SensorConsole(){
 
   const toggleMode=async()=>{
     const next=mode==='sim'?'real':'sim';
+    setSwitching(true);
     setMode(next);
     try{await api.setFleetMode(next);}catch{}
+    setTimeout(()=>setSwitching(false),600);
   };
 
   const runCmd=async(cmd:string)=>{
@@ -145,10 +152,13 @@ export default function SensorConsole(){
           <div className="sx-eyebrow">PlantaOS · Consola de sensores</div>
           <h1 className="sx-title">Controlo da frota</h1>
         </div>
-        <button className={`sx-mode ${mode}`} onClick={toggleMode}>
-          {mode==='sim'?'Simulação':'Dados reais'}
-          <span>tocar para trocar</span>
-        </button>
+        <div className="sx-head-r">
+          {lastUpdate && <div className="sx-upd">atualizado {lastUpdate.toLocaleTimeString()}</div>}
+          <button className={`sx-mode ${mode} ${switching?'sw':''}`} onClick={toggleMode}>
+            {mode==='sim'?'Simulação':'Dados reais'}
+            <span>{switching?'a trocar…':'tocar para trocar'}</span>
+          </button>
+        </div>
       </div>
 
       <div className="sx-kpis">
@@ -178,6 +188,9 @@ export default function SensorConsole(){
               <span className="sx-count">{filtered.length} sensores</span>
             </div>
             <div className="sx-grid">
+              {loading && fleet.length===0 && Array.from({length:12}).map((_,i)=>(
+                <div key={'sk'+i} className="sx-card sx-skel"/>
+              ))}
               {filtered.map(s=>(
                 <button key={s.id} className={`sx-card ${selSensor?.id===s.id?'sel':''}`} onClick={()=>setSelSensor(s)}>
                   <div className="sx-card-top">
@@ -445,7 +458,12 @@ export default function SensorConsole(){
         .sx-res-diag div{display:flex;justify-content:space-between;font-size:12px;padding:2px 0;}
         .sx-res-diag span{color:#8A938B;} .sx-res-diag b{font-variant-numeric:tabular-nums;}
 
-        @media (max-width:820px){.sx-kpis{grid-template-columns:repeat(2,1fr);}.sx-fusao-grid{grid-template-columns:1fr;}}
+        .sx-head-r{display:flex;align-items:center;gap:12px;}
+        .sx-upd{font-size:11px;color:#8A938B;font-variant-numeric:tabular-nums;}
+        .sx-mode.sw{opacity:.7;}
+        .sx-skel{background:linear-gradient(90deg,#F0F2EC 25%,#E5E8E0 50%,#F0F2EC 75%);background-size:200% 100%;animation:sk 1.4s infinite;border:1px solid #E5E8E0;min-height:78px;}
+        @keyframes sk{0%{background-position:200% 0;}100%{background-position:-200% 0;}}
+        @media (max-width:820px){.sx-kpis{grid-template-columns:repeat(2,1fr);}.sx-fusao-grid{grid-template-columns:1fr;}.sx-head-r{flex-direction:column;align-items:flex-end;gap:4px;}}
       `}</style>
     </div>
   );
