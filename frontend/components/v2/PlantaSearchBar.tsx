@@ -48,7 +48,7 @@ export default function PlantaSearchBar() {
 
     // Mensagem default se só anexou imagem sem texto
     const finalText = content || 'Esta imagem.';
-    router.push(`/v2/chat?q=${encodeURIComponent(finalText)}${hasAttach ? '&attach=1' : ''}`);
+    router.push(`/v2/chat2?q=${encodeURIComponent(finalText)}${hasAttach ? '&attach=1' : ''}`);
     setInput('');
     setPendingFile(null);
   };
