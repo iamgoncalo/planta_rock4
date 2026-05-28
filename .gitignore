@@ -19,3 +19,6 @@ frontend/.next/
 frontend/tsconfig.tsbuildinfo
 app/main.py.bak
 *.bak*
+.DS_Store
+.plantaos_backups/
+install_v*.py
