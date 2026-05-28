@@ -94,6 +94,7 @@ interface VProps {
   geo: GeoPayload; eng: Engine; occById: Map<string, number>;
   origin: string | null; setOrigin: (id: string | null) => void;
   reco: { from: GeoCluster; to: GeoCluster } | null;
+  snap?: LiveSnapshot | null;
 }
 
 function field(eng: Engine, geo: GeoPayload, fill: string, edge: string, rx = 28) {
@@ -283,29 +284,63 @@ function BlueprintView({ geo, eng, origin, setOrigin, occById }: VProps) {
   );
 }
 
-/* 5 · Fluxos */
-function FlowView({ geo, eng, occById, origin, setOrigin }: VProps) {
+/* 5 · Fluxos — partículas a correr da entrada para cada WC */
+function FlowView({ geo, eng, occById, origin, setOrigin, snap }: VProps) {
   const entrance = geo.landmarks.find((l) => l.kind === 'entrance') ?? { e_m: 290, n_m: 175 };
   const ex = eng.x(entrance.e_m); const ey = eng.y(entrance.n_m);
+  // intensidade do fluxo: fluxo_entrada_pmin real (fallback à ocupação)
+  const flowOf = (id: string) => {
+    const f = Math.round(paramOf(snap ?? null, id, 'fluxo_entrada_pmin'));
+    if (f > 0) return f;
+    return Math.round((occById.get(id) ?? 0) / 5); // fallback proporcional
+  };
+  const maxFlow = Math.max(1, ...geo.clusters.map((c) => flowOf(c.id)));
   return (
     <svg viewBox={`0 0 ${VB} ${VB}`} className="tw-svg">
       {field(eng, geo, '#FAFBF6', '#E5E8E0')}
       {geo.clusters.map((c) => {
-        const o = occById.get(c.id) ?? 0; const cx = eng.x(c.e_m); const cy = eng.y(c.n_m);
-        const mx = (ex + cx) / 2; const my = (ey + cy) / 2 - 60;
-        const w = 1.5 + (100 - o) / 25;
-        return <path key={`f${c.id}`} d={`M ${ex} ${ey} Q ${mx} ${my} ${cx} ${cy}`} fill="none" stroke={STc[occSt(o)]} strokeWidth={w} opacity="0.5" strokeDasharray="8 10" className="tw-dash" />;
-      })}
-      <g transform={`translate(${ex}, ${ey})`}><circle r="9" fill="#1B3A21" /><text x="0" y="-16" fontSize="12" textAnchor="middle" fontWeight="700" fill="#1B3A21">Entrada</text></g>
-      {geo.clusters.map((c) => {
+        const cx = eng.x(c.e_m); const cy = eng.y(c.n_m);
+        const mx = (ex + cx) / 2; const my = (ey + cy) / 2 - 70;
         const o = occById.get(c.id) ?? 0;
+        const fl = flowOf(c.id);
+        const intensity = fl / maxFlow;
+        const w = 2 + intensity * 9;
+        const path = `M ${ex} ${ey} Q ${mx} ${my} ${cx} ${cy}`;
+        // nº de partículas e velocidade pela intensidade
+        const nDots = Math.max(2, Math.round(2 + intensity * 5));
+        const dur = (4.5 - intensity * 2.5).toFixed(2);
         return (
-          <g key={c.id} transform={`translate(${eng.x(c.e_m)}, ${eng.y(c.n_m)})`} style={{ cursor: 'pointer' }} onClick={() => setOrigin(origin === c.id ? null : c.id)}>
-            <circle r="20" fill="#fff" stroke={STc[occSt(o)]} strokeWidth="3.5" />
-            <text x="0" y="4" fontSize="12" textAnchor="middle" fontWeight="700" fill="#1B3A21">{c.id.replace('WC-', '')}</text>
+          <g key={`f${c.id}`}>
+            <path d={path} fill="none" stroke={STc[occSt(o)]} strokeWidth={w} opacity="0.18" strokeLinecap="round" />
+            {Array.from({ length: nDots }).map((_, k) => (
+              <circle key={k} r={3 + intensity * 2.5} fill={STc[occSt(o)]} opacity="0.9">
+                <animateMotion dur={`${dur}s`} repeatCount="indefinite" path={path} begin={`${(k / nDots) * Number(dur)}s`} />
+              </circle>
+            ))}
           </g>
         );
       })}
+      {/* entrada */}
+      <g transform={`translate(${ex}, ${ey})`}>
+        <circle r="12" fill="#1B3A21" />
+        <circle r="12" fill="none" stroke="#1B3A21" strokeWidth="2" opacity="0.4" className="tw-pulse" />
+        <text x="0" y="-20" fontSize="13" textAnchor="middle" fontWeight="700" fill="#1B3A21">Entrada</text>
+      </g>
+      {/* destinos com nº de fluxo */}
+      {geo.clusters.map((c) => {
+        const o = occById.get(c.id) ?? 0; const fl = flowOf(c.id);
+        return (
+          <g key={c.id} transform={`translate(${eng.x(c.e_m)}, ${eng.y(c.n_m)})`} style={{ cursor: 'pointer' }} onClick={() => setOrigin(origin === c.id ? null : c.id)}>
+            <circle r="22" fill="#fff" stroke={STc[occSt(o)]} strokeWidth="3.5" />
+            <text x="0" y="0" fontSize="12" textAnchor="middle" fontWeight="700" fill="#1B3A21">{c.id.replace('WC-', '')}</text>
+            <text x="0" y="13" fontSize="8.5" textAnchor="middle" fontWeight="600" fill={STc[occSt(o)]}>{fl}/min</text>
+          </g>
+        );
+      })}
+      {/* legenda */}
+      <g transform={`translate(${PAD}, ${VB - PAD * 0.45})`}>
+        <text x="0" y="0" fontSize="12" fill="#3A4A3F">As partículas mostram afluência por minuto da entrada a cada WC.</text>
+      </g>
       {northArrow(eng)}
     </svg>
   );
@@ -334,36 +369,115 @@ function SatView({ geo, eng, occById, origin, setOrigin, reco }: VProps) {
   );
 }
 
-/* 7 · Mundo (overworld editorial) */
-function WorldView({ geo, eng, occById, origin, setOrigin }: VProps) {
+/* 7 · Mundo (overworld Game Boy editorial — rico) */
+function WorldView({ geo, eng, occById, origin, setOrigin, reco }: VProps) {
+  // paleta Game Boy verde
+  const GB = { grass: '#8BAC5A', grassDk: '#7A9B4E', path: '#D8C896', pathDk: '#C4B27E', ink: '#2A3320', cream: '#F4ECD8' };
+  const x0 = eng.x(0), y1 = eng.y(geo.span_n_m);
+  const fw = geo.span_e_m * eng.S, fh = geo.span_n_m * eng.S;
+  const entrance = geo.landmarks.find((l) => l.kind === 'entrance') ?? { e_m: 290, n_m: 175 };
+  const ex = eng.x(entrance.e_m), ey = eng.y(entrance.n_m);
+
+  // tiles de relva (checkerboard subtil)
+  const tile = 34; const cols = Math.ceil(fw / tile); const rows = Math.ceil(fh / tile);
+  const tiles: any[] = [];
+  for (let r = 0; r < rows; r++) for (let cI = 0; cI < cols; cI++) {
+    if ((r + cI) % 2 === 0) tiles.push(<rect key={`t${r}-${cI}`} x={x0 + cI * tile} y={y1 + r * tile} width={tile} height={tile} fill={GB.grassDk} opacity="0.45" />);
+  }
+
   return (
     <svg viewBox={`0 0 ${VB} ${VB}`} className="tw-svg" shapeRendering="crispEdges">
-      {field(eng, geo, '#CFE8B0', '#9FC97A', 8)}
-      {/* tufos de erva */}
-      {Array.from({ length: 36 }).map((_, i) => {
-        const gx = PAD + 30 + (i % 9) * ((VB - 2 * PAD - 60) / 8);
-        const gy = PAD + 30 + Math.floor(i / 9) * ((VB - 2 * PAD - 60) / 4);
-        return <g key={i} opacity="0.5"><path d={`M ${gx} ${gy} l 4 -10 l 4 10`} stroke="#7CB342" strokeWidth="2" fill="none" /></g>;
-      })}
-      {geo.clusters.map((c) => {
-        const o = occById.get(c.id) ?? 0; const m = meta(c.id); const w = c.unisex ? 30 : 24;
-        const cx = eng.x(c.e_m); const cy = eng.y(c.n_m);
+      {/* relva base + tiles */}
+      <rect x={x0} y={y1} width={fw} height={fh} fill={GB.grass} stroke={GB.grassDk} strokeWidth="3" />
+      <g clipPath="url(#worldclip)">{tiles}</g>
+      <defs><clipPath id="worldclip"><rect x={x0} y={y1} width={fw} height={fh} /></clipPath></defs>
+
+      {/* caminhos de terra da entrada a cada WC */}
+      {geo.clusters.map((c) => (
+        <line key={`p${c.id}`} x1={ex} y1={ey} x2={eng.x(c.e_m)} y2={eng.y(c.n_m)} stroke={GB.path} strokeWidth="11" strokeLinecap="round" opacity="0.75" />
+      ))}
+      {geo.clusters.map((c) => (
+        <line key={`pd${c.id}`} x1={ex} y1={ey} x2={eng.x(c.e_m)} y2={eng.y(c.n_m)} stroke={GB.pathDk} strokeWidth="11" strokeLinecap="round" strokeDasharray="2 14" opacity="0.5" />
+      ))}
+
+      {/* erva alta animada (tufos a ondular) */}
+      {Array.from({ length: 22 }).map((_, i) => {
+        const gx = x0 + 24 + ((i * 47) % (fw - 48));
+        const gy = y1 + 30 + ((i * 83) % (fh - 60));
         return (
-          <g key={c.id} transform={`translate(${cx}, ${cy})`} style={{ cursor: 'pointer' }} onClick={() => setOrigin(origin === c.id ? null : c.id)}>
-            {/* casinha */}
-            <rect x={-w} y={-w * 0.5} width={w * 2} height={w} fill="#F4ECD8" stroke="#5A743F" strokeWidth="2.5" />
-            <polygon points={`${-w - 4},${-w * 0.5} 0,${-w * 1.1} ${w + 4},${-w * 0.5}`} fill={m.color} stroke="#5A743F" strokeWidth="2.5" />
-            <rect x="-6" y={w * 0.1} width="12" height={w * 0.4} fill="#5A743F" />
-            <text x="0" y={w + 16} fontSize="11" textAnchor="middle" fontWeight="700" fill="#2A3320">{c.id}</text>
-            <g transform={`translate(0, ${w + 26})`}>
-              <rect x="-26" y="-9" width="52" height="16" rx="8" fill={m.color} opacity="0.9" />
-              <text x="0" y="3" fontSize="9" textAnchor="middle" fontWeight="700" fill="#fff">{m.element} · {o}%</text>
-            </g>
-            {o >= 85 && <text x="0" y={-w * 1.3} fontSize="18" textAnchor="middle" fontWeight="800" fill="#C25A1A" className="tw-critpulse">!</text>}
+          <g key={`g${i}`} transform={`translate(${gx}, ${gy})`} className="tw-grass" style={{ ['--gd' as any]: `${(i % 5) * 0.3}s` }}>
+            <path d="M -7 0 q -2 -11 1 -15 M 0 0 q 0 -13 0 -17 M 7 0 q 2 -11 -1 -15" stroke={GB.grassDk} strokeWidth="2.5" fill="none" strokeLinecap="round" />
           </g>
         );
       })}
-      {youHere(eng, geo, origin, 28)}
+
+      {/* treinadores a andar (poucos, leves) */}
+      {Array.from({ length: 9 }).map((_, i) => {
+        const tx = x0 + 50 + ((i * 113) % (fw - 100));
+        const ty = y1 + 60 + ((i * 67) % (fh - 120));
+        const cols2 = ['#1B3A21', '#4A7C59', '#8A6308', '#C25A8F', '#5A8FB0'];
+        const col = cols2[i % cols2.length];
+        return (
+          <g key={`tr${i}`} transform={`translate(${tx}, ${ty})`} className="tw-trainer" style={{ ['--td' as any]: `${(i % 4) * 0.45}s` }}>
+            <ellipse cx="0" cy="11" rx="7" ry="2.5" fill="#000" opacity="0.12" />
+            <rect x="-5" y="-2" width="10" height="11" rx="2" fill={col} />
+            <circle cx="0" cy="-7" r="5" fill={GB.cream} stroke={col} strokeWidth="1.5" />
+            <rect x="-5" y="-12" width="10" height="4" rx="2" fill={col} />
+          </g>
+        );
+      })}
+
+      {/* entrada (portão) */}
+      <g transform={`translate(${ex}, ${ey})`}>
+        <rect x="-16" y="-14" width="32" height="28" rx="3" fill={GB.cream} stroke={GB.ink} strokeWidth="2.5" />
+        <rect x="-10" y="-8" width="20" height="22" fill={GB.path} />
+        <text x="0" y="-22" fontSize="11" textAnchor="middle" fontWeight="700" fill={GB.ink}>Entrada</text>
+      </g>
+
+      {/* edifícios WC (estilo centro/ginásio) */}
+      {geo.clusters.map((c) => {
+        const o = occById.get(c.id) ?? 0; const m = meta(c.id); const st = occSt(o);
+        const w = c.unisex ? 30 : 25; const cx = eng.x(c.e_m); const cy = eng.y(c.n_m);
+        const isReco = reco?.to.id === c.id;
+        return (
+          <g key={c.id} transform={`translate(${cx}, ${cy})`} style={{ cursor: 'pointer' }} onClick={() => setOrigin(origin === c.id ? null : c.id)}>
+            {isReco && <circle r={w + 16} fill="none" stroke="#4A7C59" strokeWidth="3" strokeDasharray="5 5" className="tw-pulse" />}
+            {/* sombra */}
+            <ellipse cx="0" cy={w * 0.62} rx={w} ry="6" fill="#000" opacity="0.12" />
+            {/* corpo */}
+            <rect x={-w} y={-w * 0.45} width={w * 2} height={w} rx="2" fill={GB.cream} stroke={GB.ink} strokeWidth="2.5" />
+            {/* telhado da cor do elemento */}
+            <polygon points={`${-w - 5},${-w * 0.45} 0,${-w * 1.15} ${w + 5},${-w * 0.45}`} fill={m.color} stroke={GB.ink} strokeWidth="2.5" />
+            {/* faixa do telhado */}
+            <polygon points={`${-w - 5},${-w * 0.45} 0,${-w * 0.78} ${w + 5},${-w * 0.45}`} fill="#fff" opacity="0.25" />
+            {/* porta */}
+            <rect x="-7" y={w * 0.05} width="14" height={w * 0.4} rx="1" fill={GB.ink} opacity="0.8" />
+            {/* janelas */}
+            <rect x={-w + 5} y={-w * 0.25} width="7" height="7" fill={st === 'crit' ? '#C25A1A' : '#BFE0E8'} />
+            <rect x={w - 12} y={-w * 0.25} width="7" height="7" fill={st === 'crit' ? '#C25A1A' : '#BFE0E8'} />
+            {/* placa pendurada */}
+            <g transform={`translate(0, ${w + 14})`}>
+              <rect x="-30" y="-10" width="60" height="19" rx="3" fill="#fff" stroke={GB.ink} strokeWidth="2" />
+              <text x="0" y="-1" fontSize="10" textAnchor="middle" fontWeight="800" fill={GB.ink}>{c.id}</text>
+              <text x="0" y="7" fontSize="7" textAnchor="middle" fontWeight="700" fill={m.color}>{m.element} · {o}%</text>
+            </g>
+            {st === 'crit' && <text x="0" y={-w * 1.35} fontSize="20" textAnchor="middle" fontWeight="800" fill="#C25A1A" className="tw-critpulse">!</text>}
+          </g>
+        );
+      })}
+
+      {youHere(eng, geo, origin, 30)}
+
+      {/* caixa de diálogo Game Boy */}
+      <g transform={`translate(${x0 + 10}, ${y1 + fh - 70})`}>
+        <rect x="0" y="0" width={fw - 20} height="56" rx="6" fill={GB.cream} stroke={GB.ink} strokeWidth="3" />
+        <rect x="5" y="5" width={fw - 30} height="46" rx="3" fill="none" stroke={GB.ink} strokeWidth="1" opacity="0.3" />
+        <text x="18" y="24" fontSize="14" fontWeight="700" fill={GB.ink}>
+          {reco ? `Treinador Planta: vai a ${reco.to.id} — está mais livre!` : 'Toca num WC para começar a aventura.'}
+        </text>
+        <text x="18" y="43" fontSize="11" fill={GB.ink} opacity="0.7">As casinhas com telhado da cor do elemento são os teus 8 WC.</text>
+        <polygon points={`${fw - 38},44 ${fw - 30},44 ${fw - 34},50`} fill={GB.ink} className="tw-pulse" />
+      </g>
     </svg>
   );
 }
@@ -662,7 +776,7 @@ export default function TwinPage() {
   const View = VIEWS.find((v) => v.id === viewId) ?? VIEWS[0];
   const live = connection === 'sse' || connection === 'polling';
   const selCluster = selected ? geo.clusters.find((c) => c.id === selected) ?? null : null;
-  const vprops: VProps = { geo, eng, occById, origin: selected, setOrigin: setSelected, reco: reco ? { from: reco.from, to: reco.to } : null };
+  const vprops: VProps = { geo, eng, occById, origin: selected, setOrigin: setSelected, reco: reco ? { from: reco.from, to: reco.to } : null, snap: snapshot };
 
   return (
     <div className="tw-root">
@@ -700,13 +814,13 @@ export default function TwinPage() {
 
       <style jsx>{`
         .tw-root { position: fixed; top: var(--topbar-h, 72px); left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--paper, #FAFAF7); color: #0D1A0F; }
-        .tw-hud { flex-shrink: 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: clamp(10px,1.4vw,16px) clamp(14px,2.6vw,32px) 0; }
+        .tw-hud { flex-shrink: 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: clamp(6px,1vw,12px) clamp(14px,2.6vw,32px) 0; }
         .tw-eyebrow { font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.45; }
-        .tw-title { font-size: clamp(22px,3vw,40px); font-weight: 200; letter-spacing: -0.04em; line-height: 1; margin-top: 4px; }
+        .tw-title { font-size: clamp(20px,2.6vw,34px); font-weight: 200; letter-spacing: -0.04em; line-height: 1; margin-top: 2px; }
         .tw-conn { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; opacity: 0.65; flex-shrink: 0; }
         .tw-cd { width: 8px; height: 8px; border-radius: 50%; animation: tw-blink 1.8s ease-in-out infinite; }
 
-        .tw-tabs { flex-shrink: 0; display: flex; gap: 6px; overflow-x: auto; padding: 12px clamp(14px,2.6vw,32px); scrollbar-width: none; }
+        .tw-tabs { flex-shrink: 0; display: flex; gap: 6px; overflow-x: auto; padding: 8px clamp(14px,2.6vw,32px); scrollbar-width: none; }
         .tw-tabs::-webkit-scrollbar { display: none; }
         .tw-tab { white-space: nowrap; background: #fff; border: 1px solid #E5E8E0; border-radius: 999px; padding: 8px 16px; font-size: 13px; font-weight: 500; cursor: pointer; color: #0D1A0F; font-family: inherit; flex-shrink: 0; transition: all 0.14s; }
         .tw-tab:hover { border-color: #4A7C59; }
@@ -740,6 +854,10 @@ export default function TwinPage() {
         @keyframes tw-pop { from { opacity: 0; transform: translateY(8px) scale(0.85); } to { opacity: 1; transform: scale(1); } }
         @keyframes tw-blink { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
         @keyframes tw-dashmove { to { stroke-dashoffset: -18; } }
+        .tw-grass { transform-box: fill-box; transform-origin: bottom center; animation: tw-sway 2.4s ease-in-out infinite; animation-delay: var(--gd, 0s); }
+        @keyframes tw-sway { 0%,100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+        .tw-trainer { animation: tw-bob 0.9s steps(2) infinite; animation-delay: var(--td, 0s); }
+        @keyframes tw-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
 
         .tw-dex { width: 100%; max-width: 1100px; height: 100%; display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(2, 1fr); gap: clamp(8px,1vw,14px); padding: 4px; }
         .tw-card { display: flex; flex-direction: column; gap: 6px; background: #fff; border: 1px solid #E5E8E0; border-left: 4px solid var(--tc); border-radius: 14px; padding: clamp(10px,1.2vw,16px); cursor: pointer; font-family: inherit; text-align: left; transition: all 0.14s; min-height: 0; }

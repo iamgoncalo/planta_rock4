@@ -17,11 +17,10 @@ export default function PlantaSearchBar() {
   const [minimized, setMinimized] = useState(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    // No /v2/twin a barra comeca SEMPRE minimizada (a pagina tem painel proprio).
+    if (pathname && pathname.startsWith('/v2/twin')) { setMinimized(true); return; }
     const saved = window.localStorage.getItem('planta-bar-min');
-    if (saved === '1') { setMinimized(true); return; }
-    if (saved === '0') { setMinimized(false); return; }
-    // sem preferencia guardada: no twin comeca minimizada
-    setMinimized(!!(pathname && pathname.startsWith('/v2/twin')));
+    setMinimized(saved === '1');
   }, [pathname]);
   const toggleMin = (v: boolean) => {
     setMinimized(v);
