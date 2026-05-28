@@ -101,19 +101,15 @@ def _aggregate(sections: list) -> dict:
     return agg
 
 
-def _build_payload(state: dict) -> dict:
+def _build_clusters(state: dict) -> list:
+    """1 entrada por cluster (wc-01..wc-08). 05/06 unisex -> homens/mulheres = None."""
     sections = state.get("sections", []) or []
     agg = _aggregate(sections)
     ts_ms = int(time.time() * 1000)
-    all_occ = []
-    crit = 0
     clusters_payload = []
     for wc in ALL_CLUSTERS:
         a = agg[wc]
         occ_avg = round(mean(a["occ_list"]), 1) if a["occ_list"] else 0.0
-        all_occ.append(occ_avg)
-        if a["critical"]:
-            crit += 1
         is_uni = wc in UNISEX_CLUSTERS
         params = {
             "telemoveis_detectados": int(round(a["pessoas"] * 1.4)),
@@ -128,6 +124,21 @@ def _build_payload(state: dict) -> dict:
             "estado_sensor": "simulado" if a["simulated"] else "okay",
         }
         clusters_payload.append({"cluster_id": wc, "ts": ts_ms, "params": params})
+    return clusters_payload
+
+
+def _build_kpis(state: dict) -> dict:
+    """KPIs com nomes kpi_NN_value (formato Sensaway). Sem lista clusters."""
+    sections = state.get("sections", []) or []
+    agg = _aggregate(sections)
+    all_occ = []
+    crit = 0
+    for wc in ALL_CLUSTERS:
+        a = agg[wc]
+        if a["occ_list"]:
+            all_occ.append(round(mean(a["occ_list"]), 1))
+        if a["critical"]:
+            crit += 1
     kpi_02 = round(mean(all_occ), 1) if all_occ else 0.0
     kpi_01 = int(round(max(0.0, 100.0 - kpi_02)))
     kpis = state.get("kpis", {}) or {}
@@ -135,52 +146,76 @@ def _build_payload(state: dict) -> dict:
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "source": "PlantaOS",
-        "kpi_01": kpi_01,
-        "kpi_02": float(kpi_02),
-        "kpi_03": int(crit),
-        "kpi_04": kpi_04,
-        "clusters": clusters_payload,
+        "kpi_01_value": kpi_01,
+        "kpi_02_value": float(kpi_02),
+        "kpi_03_value": int(crit),
+        "kpi_04_value": kpi_04,
     }
 
 
-async def push_once(client: httpx.AsyncClient, url: str) -> bool:
+async def push_once(client: httpx.AsyncClient, kpi_url: str, cluster_url: str) -> bool:
     state = await _fetch_state()
     if not state:
         _log("scor.publish.skip state_unavailable")
         return False
-    payload = _build_payload(state)
+    kpis = _build_kpis(state)
+    clusters = _build_clusters(state)
     dry = os.getenv("SCOR_DRY_RUN", "false").lower() == "true"
+
     if dry:
-        _log(f"scor.publish.DRY_RUN kpi_01={payload['kpi_01']} kpi_02={payload['kpi_02']} kpi_03={payload['kpi_03']} kpi_04={payload['kpi_04']}")
-        _log_cluster_detail(payload)
+        _log(f"scor.publish.DRY_RUN kpi_01_value={kpis['kpi_01_value']} kpi_02_value={kpis['kpi_02_value']} kpi_03_value={kpis['kpi_03_value']} kpi_04_value={kpis['kpi_04_value']}")
+        _log_cluster_detail({"clusters": clusters})
         return True
+
+    ok_all = True
+    _scor_t0 = time.time()
+
+    # (A) KPIs -> endpoint KPI (campos kpi_NN_value)
     try:
-        _scor_t0 = time.time()
-        r = await client.post(url, json=payload, timeout=8.0)
-        if 200 <= r.status_code < 300:
-            _log(f"scor.publish.OK status={r.status_code} kpi_01={payload['kpi_01']} kpi_02={payload['kpi_02']} kpi_03={payload['kpi_03']} kpi_04={payload['kpi_04']}")
-            _log_cluster_detail(payload)
-            try:
-                _dt_ms = int((time.time() - _scor_t0) * 1000)
-                await scor_history.add(ScorPublishRecord(
-                    ts=time.time(),
-                    iso=datetime.fromtimestamp(time.time(), tz=timezone.utc).isoformat(),
-                    status=r.status_code,
-                    duration_ms=_dt_ms,
-                    kpi_01=int(payload.get("kpi_01", 0)),
-                    kpi_02=float(payload.get("kpi_02", 0.0)),
-                    kpi_03=int(payload.get("kpi_03", 0)),
-                    kpi_04=int(payload.get("kpi_04", 0)),
-                    cluster_count=8,
-                ))
-            except Exception:
-                pass
-            return True
-        _log(f"scor.publish.ERROR status={r.status_code} body={r.text[:200]}")
-        return False
+        rk = await client.post(kpi_url, json=kpis, timeout=8.0)
+        if 200 <= rk.status_code < 300:
+            _log(f"scor.publish.KPI.OK status={rk.status_code} kpi_01_value={kpis['kpi_01_value']} kpi_02_value={kpis['kpi_02_value']} kpi_03_value={kpis['kpi_03_value']} kpi_04_value={kpis['kpi_04_value']}")
+        else:
+            ok_all = False
+            _log(f"scor.publish.KPI.ERROR status={rk.status_code} body={rk.text[:200]}")
     except Exception as e:
-        _log(f"scor.publish.EXCEPTION {type(e).__name__}: {e}")
-        return False
+        ok_all = False
+        _log(f"scor.publish.KPI.EXCEPTION {type(e).__name__}: {e}")
+
+    # (B) Clusters -> 1 POST por cluster para o endpoint de integracao
+    sent = 0
+    for c in clusters:
+        try:
+            rc = await client.post(cluster_url, json=c, timeout=8.0)
+            if 200 <= rc.status_code < 300:
+                sent += 1
+            else:
+                ok_all = False
+                _log(f"scor.publish.CLUSTER.ERROR {c['cluster_id']} status={rc.status_code} body={rc.text[:150]}")
+        except Exception as e:
+            ok_all = False
+            _log(f"scor.publish.CLUSTER.EXCEPTION {c['cluster_id']} {type(e).__name__}: {e}")
+
+    _log(f"scor.publish.CLUSTERS.OK sent={sent}/{len(clusters)}")
+    _log_cluster_detail({"clusters": clusters})
+
+    try:
+        _dt_ms = int((time.time() - _scor_t0) * 1000)
+        await scor_history.add(ScorPublishRecord(
+            ts=time.time(),
+            iso=datetime.fromtimestamp(time.time(), tz=timezone.utc).isoformat(),
+            status=200 if ok_all else 207,
+            duration_ms=_dt_ms,
+            kpi_01=int(kpis.get("kpi_01_value", 0)),
+            kpi_02=float(kpis.get("kpi_02_value", 0.0)),
+            kpi_03=int(kpis.get("kpi_03_value", 0)),
+            kpi_04=int(kpis.get("kpi_04_value", 0)),
+            cluster_count=sent,
+        ))
+    except Exception:
+        pass
+
+    return ok_all
 
 
 async def publisher_loop() -> None:
@@ -191,15 +226,19 @@ async def publisher_loop() -> None:
     if not token:
         _log("scor.publisher.ABORT token_missing")
         return
-    url = f"{base}/api/v1/{token}/telemetry"
-    _log(f"scor.publisher.STARTED interval_s={interval_s} dry_run={dry} url={url}")
+    kpi_url = f"{base}/api/v1/{token}/telemetry"
+    cluster_url = os.getenv(
+        "SCOR_CLUSTER_URL",
+        "https://scor.sensaway.com/api/v1/integrations/http/04614480-c43a-1f5f-af68-86c606bddb32",
+    )
+    _log(f"scor.publisher.STARTED interval_s={interval_s} dry_run={dry} kpi_url={kpi_url} cluster_url={cluster_url}")
     async with httpx.AsyncClient() as client:
         ok_count = 0
         fail_count = 0
         await asyncio.sleep(5)
         while True:
             try:
-                ok = await push_once(client, url)
+                ok = await push_once(client, kpi_url, cluster_url)
                 if ok:
                     ok_count += 1
                 else:
