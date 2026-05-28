@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
-import PlantaSearchBar from '@/components/v2/PlantaSearchBar';
+import PlantaChatbot from '@/components/v2/PlantaChatbot';
 import { Cormorant_Garamond, DM_Sans, DM_Mono } from 'next/font/google';
 import TopBar from '@/components/v2/TopBar';
+import LiveTerminal from '@/components/v2/LiveTerminal';
 import './v2.css';
 
 const cormorant = Cormorant_Garamond({
@@ -38,7 +39,8 @@ export default function V2Layout({ children }: { children: React.ReactNode }) {
     >
       <TopBar />
       <main className="v2-content">{children}
-      <PlantaSearchBar /></main>
-      </div>
+      <PlantaChatbot /></main>
+      <LiveTerminal />
+    </div>
   );
 }
