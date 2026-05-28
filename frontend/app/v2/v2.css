@@ -1,9 +1,9 @@
 /* ════════════════════════════════════════════════════════════════════
-   PlantaOS v12 · Editorial · Oxman-inspired
-   - Tipografia Inter sans-serif (DM Sans fallback)
-   - Sizes em clamp() com vw para escala fluida
-   - Pages que cabem num viewport quando possível
-   - Sem bottom nav. Sem overflow horizontal.
+   PlantaOS v13 · v2.css — Editorial Oxman + RESPONSIVO
+   - Inter sans-serif
+   - clamp(vw) para tudo
+   - Media queries fortes que apanham grids fixos inline
+   - Mobile-first ajustes
    ════════════════════════════════════════════════════════════════════ */
 
 @import url('https://rsms.me/inter/inter.css');
@@ -38,24 +38,16 @@
   --header-h:    72px;
   --searchbar-h: 88px;
 
-  /* SANS-SERIF Oxman-style */
   --font-display: 'Inter', 'DM Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-sans:    'Inter', 'DM Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono:    var(--font-dm-mono), 'JetBrains Mono', ui-monospace, monospace;
-
-  /* DEPRECATED — mantido para compat com páginas que ainda usam .serif */
   --font-serif:   'Inter', 'DM Sans', sans-serif;
 }
 
 /* ──── Reset ─────────────────────────────────────────────────────── */
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
-html {
-  /* Pode haver scroll na página (não global) mas nunca horizontal */
-  overflow-x: hidden;
-}
+html { overflow-x: hidden; }
 
 html, body {
   margin: 0;
@@ -68,7 +60,7 @@ html, body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  font-feature-settings: 'cv11', 'ss01', 'ss03';  /* Inter alternates */
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
 }
 
 body { overflow-x: hidden; }
@@ -83,7 +75,7 @@ body { overflow-x: hidden; }
   min-height: 100vh;
 }
 
-/* ──── Tipografia EDITORIAL — Oxman style ───────────────────────── */
+/* ──── Tipografia EDITORIAL ─────────────────────────────────────── */
 h1, h2, h3, h4, .serif, .display {
   font-family: var(--font-display);
   font-weight: 500;
@@ -94,58 +86,48 @@ h1, h2, h3, h4, .serif, .display {
 }
 
 h1, .display-1 {
-  font-size: clamp(48px, 9vw, 144px);
+  font-size: clamp(40px, 8vw, 144px);
   font-weight: 500;
   letter-spacing: -0.04em;
   line-height: 0.92;
 }
 
 h2, .display-2 {
-  font-size: clamp(36px, 6vw, 88px);
+  font-size: clamp(28px, 5vw, 88px);
   letter-spacing: -0.035em;
   line-height: 0.96;
   font-weight: 500;
 }
 
 h3, .display-3 {
-  font-size: clamp(24px, 3.5vw, 44px);
+  font-size: clamp(20px, 3vw, 44px);
   letter-spacing: -0.025em;
   line-height: 1.05;
   font-weight: 500;
 }
 
 h4 {
-  font-size: clamp(18px, 2vw, 22px);
+  font-size: clamp(16px, 1.8vw, 22px);
   font-weight: 600;
 }
 
-.eyebrow {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-  color: var(--muted);
-  font-weight: 500;
-}
-
+.eyebrow,
 .section-label {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: clamp(9.5px, 1vw, 11px);
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--muted);
   font-weight: 500;
-  margin-bottom: 14px;
 }
 
-.mono {
-  font-family: var(--font-mono);
-  letter-spacing: 0.02em;
-}
+.section-label { margin-bottom: 12px; }
+
+.mono { font-family: var(--font-mono); letter-spacing: 0.02em; }
 
 .kicker {
   color: var(--muted);
-  font-size: clamp(14px, 1.4vw, 17px);
+  font-size: clamp(13px, 1.3vw, 17px);
   line-height: 1.5;
   max-width: 65ch;
 }
@@ -155,7 +137,7 @@ h4 {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: clamp(14px, 1.8vw, 22px);
+  padding: clamp(12px, 1.8vw, 22px);
   transition: border-color 0.22s, box-shadow 0.22s, transform 0.22s;
 }
 
@@ -197,8 +179,7 @@ h4 {
 
 .pill-live::before {
   content: '';
-  width: 6px;
-  height: 6px;
+  width: 6px; height: 6px;
   border-radius: 50%;
   background: var(--green);
   animation: pulse-dot 1.4s ease-in-out infinite;
@@ -229,15 +210,9 @@ h4 {
   transition: all 0.18s;
 }
 
-.btn:hover {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
-}
+.btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
 
-.btn-green {
-  background: var(--green-dark);
-  border-color: var(--green-dark);
-}
+.btn-green { background: var(--green-dark); border-color: var(--green-dark); }
 
 .btn-ghost {
   background: transparent;
@@ -245,12 +220,9 @@ h4 {
   border-color: var(--border-strong);
 }
 
-.btn-ghost:hover {
-  border-color: var(--ink);
-  background: var(--bg-soft);
-}
+.btn-ghost:hover { border-color: var(--ink); background: var(--bg-soft); }
 
-/* ──── Grid utilities ────────────────────────────────────────────── */
+/* ──── Grid utilities (.grid-N) ─────────────────────────────────── */
 .grid {
   display: grid;
   gap: clamp(10px, 1vw, 16px);
@@ -259,32 +231,31 @@ h4 {
 .grid-2 { grid-template-columns: repeat(2, 1fr); }
 .grid-3 { grid-template-columns: repeat(3, 1fr); }
 .grid-4 { grid-template-columns: repeat(4, 1fr); }
-.grid-8 { grid-template-columns: repeat(4, 1fr); }  /* desktop: 4x2 */
+.grid-8 { grid-template-columns: repeat(4, 1fr); }
 
 @media (max-width: 1024px) {
   .grid-4, .grid-8 { grid-template-columns: repeat(3, 1fr); }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 760px) {
   .grid-3, .grid-4, .grid-8 { grid-template-columns: repeat(2, 1fr); }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 460px) {
   .grid-2, .grid-3, .grid-4, .grid-8 { grid-template-columns: 1fr; }
 }
 
-/* ──── Page container ───────────────────────────────────────────── */
+/* ──── Page containers ──────────────────────────────────────────── */
 .page {
   max-width: 1500px;
   margin: 0 auto;
-  padding: clamp(20px, 3vw, 40px) clamp(18px, 3vw, 32px);
+  padding: clamp(20px, 3vw, 40px) clamp(14px, 3vw, 32px);
 }
 
 .page-full {
-  /* Para páginas que devem caber em 1 viewport */
   max-width: 1500px;
   margin: 0 auto;
-  padding: clamp(20px, 2.5vw, 32px) clamp(18px, 3vw, 32px);
+  padding: clamp(16px, 2.5vw, 32px) clamp(14px, 3vw, 32px);
   min-height: calc(100vh - var(--header-h) - var(--searchbar-h) - 36px);
   display: flex;
   flex-direction: column;
@@ -299,14 +270,10 @@ h4 {
 }
 
 @media (max-width: 720px) {
-  .page-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-  }
+  .page-header { flex-direction: column; align-items: flex-start; gap: 12px; }
 }
 
-/* ──── Tabelas limpas ────────────────────────────────────────────── */
+/* ──── Tabelas ──────────────────────────────────────────────────── */
 .table-clean {
   width: 100%;
   border-collapse: collapse;
@@ -331,20 +298,22 @@ h4 {
   color: var(--ink);
 }
 
-.table-clean tr:hover td {
-  background: var(--bg-soft);
+.table-clean tr:hover td { background: var(--bg-soft); }
+
+/* Tabela responsiva — wrapper com scroll horizontal subtle */
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--radius);
 }
 
-/* ──── KPI editorial ─────────────────────────────────────────────── */
-.kpi {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+/* ──── KPI ───────────────────────────────────────────────────────── */
+.kpi { display: flex; flex-direction: column; gap: 6px; }
 
 .kpi-value {
   font-family: var(--font-display);
-  font-size: clamp(40px, 6vw, 88px);
+  font-size: clamp(32px, 6vw, 88px);
   font-weight: 500;
   line-height: 0.92;
   color: var(--ink);
@@ -354,7 +323,7 @@ h4 {
 
 .kpi-label {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: clamp(9px, 1vw, 11px);
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--muted);
@@ -368,10 +337,7 @@ h4 {
 }
 
 /* ──── Links ─────────────────────────────────────────────────────── */
-a {
-  color: var(--ink);
-  text-decoration: none;
-}
+a { color: var(--ink); text-decoration: none; }
 
 a.link {
   color: var(--green-dark);
@@ -380,9 +346,7 @@ a.link {
   text-decoration-thickness: 1px;
 }
 
-a.link:hover {
-  text-decoration-thickness: 2px;
-}
+a.link:hover { text-decoration-thickness: 2px; }
 
 /* ──── Inputs ────────────────────────────────────────────────────── */
 input, textarea, select {
@@ -397,9 +361,7 @@ input, textarea, select {
   transition: border-color 0.18s;
 }
 
-input:focus, textarea:focus, select:focus {
-  border-color: var(--ink);
-}
+input:focus, textarea:focus, select:focus { border-color: var(--ink); }
 
 /* ──── Scrollbar discreta ────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -418,9 +380,7 @@ input:focus, textarea:focus, select:focus {
 .center { text-align: center; }
 
 .divider {
-  height: 1px;
-  background: var(--border);
-  border: none;
+  height: 1px; background: var(--border); border: none;
   margin: clamp(18px, 3vw, 36px) 0;
 }
 
@@ -428,10 +388,154 @@ input:focus, textarea:focus, select:focus {
 .spacer    { height: 28px; }
 .spacer-lg { height: 56px; }
 
-/* ──── DESLIGAR BottomNav antigo se algum CSS o tornar visível ──── */
+/* ════════════════════════════════════════════════════════════════════
+   RESPONSIVE OVERRIDES — apanha grids inline em qualquer página /v2
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ───── Tablet (até 1024px) ────────────────────────────────────── */
+@media (max-width: 1024px) {
+  /* Qualquer grid 4-col → 3-col (auto) */
+  .v2-content [style*="repeat(4, 1fr)"],
+  .v2-content [style*="repeat(4,1fr)"],
+  .v2-content [style*="repeat(4, minmax"] {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
+  }
+}
+
+/* ───── Mobile médio (até 760px) ──────────────────────────────── */
+@media (max-width: 760px) {
+  .v2-content [style*="repeat(3, 1fr)"],
+  .v2-content [style*="repeat(3,1fr)"],
+  .v2-content [style*="repeat(3, minmax"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Forçar 4-col a 2-col */
+  .v2-content [style*="repeat(4, 1fr)"],
+  .v2-content [style*="repeat(4,1fr)"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Page header em coluna */
+  [style*="justify-content: space-between"][style*="align-items: flex-end"] {
+    flex-wrap: wrap;
+  }
+
+  /* Modais ocupam quase tudo */
+  [style*="maxWidth: 480px"],
+  [style*="maxWidth:480px"],
+  [style*="maxWidth: 560px"],
+  [style*="maxWidth:560px"] {
+    max-width: calc(100vw - 24px) !important;
+  }
+
+  /* Reduzir padding lateral em containers grandes */
+  .page, .page-full {
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+  }
+
+  /* Tipografia inline grande — ajustar para mobile */
+  [style*="fontSize: 'clamp(40px"],
+  [style*="fontSize: 'clamp(48px"] {
+    font-size: clamp(32px, 9vw, 56px) !important;
+  }
+
+  /* Botões responsivos */
+  .btn { padding: 10px 16px; font-size: 13px; }
+}
+
+/* ───── Mobile pequeno (até 460px) ────────────────────────────── */
+@media (max-width: 460px) {
+  .v2-content [style*="repeat(2, 1fr)"],
+  .v2-content [style*="repeat(2,1fr)"],
+  .v2-content [style*="repeat(3, 1fr)"],
+  .v2-content [style*="repeat(4, 1fr)"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* SearchBar mais estreita */
+  /* (já é min(720px, calc(100% - 32px))) */
+
+  /* TopBar — esconder pill em mobile pequeno */
+  .topbar-right .pill-sim,
+  .topbar-right .mono { display: none; }
+
+  /* Cards mais compactos */
+  .card { padding: 14px; }
+
+  /* KPI values reduzidos */
+  .kpi-value { font-size: clamp(28px, 9vw, 48px); }
+
+  h1 { font-size: clamp(32px, 10vw, 64px); }
+  h2 { font-size: clamp(24px, 7vw, 40px); }
+}
+
+/* ───── Touch-friendly em todos os mobile ─────────────────────── */
+@media (max-width: 760px) {
+  /* Botões e clicáveis com tamanho mínimo confortável */
+  button, a[href] {
+    min-height: 36px;
+  }
+
+  /* Modal close X mais clicável */
+  [style*="top: -40px"][style*="right: 0"] { padding: 8px !important; }
+
+  /* Tables com scroll horizontal */
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    white-space: nowrap;
+  }
+}
+
+/* ───── /v2/twin específico — canvas mais baixo em mobile ─────── */
+@media (max-width: 760px) {
+  /* O canvas no /v2/twin tem altura min(70vh, 600px) — reduzir mobile */
+  .v2-content [style*="min(70vh"] {
+    height: min(50vh, 400px) !important;
+  }
+}
+
+/* ───── BottomNav antigo — desligado sempre ────────────────────── */
 .bottom-nav,
 .mobile-tabbar,
 [class*="BottomNav"],
 [class*="bottomNav"] {
   display: none !important;
+}
+
+/* ───── Animação suave em transições de breakpoint ────────────── */
+@media (prefers-reduced-motion: no-preference) {
+  .card, .pill, .btn { transition: all 0.18s ease; }
+}
+/* ════════════════════════════════════════════════════════════════════
+   responsive-extras.css · ajustes específicos /v2/sensors, /v2/incidents, /v2/operations
+   ════════════════════════════════════════════════════════════════════ */
+
+/* Apanhar TODOS os grids inline que ainda usam minmax() rígido */
+@media (max-width: 760px) {
+  .v2-content [style*="minmax(220px"],
+  .v2-content [style*="minmax(240px"],
+  .v2-content [style*="minmax(260px"],
+  .v2-content [style*="minmax(280px"],
+  .v2-content [style*="minmax(300px"],
+  .v2-content [style*="minmax(320px"],
+  .v2-content [style*="minmax(340px"],
+  .v2-content [style*="minmax(360px"] {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 460px) {
+  /* Tudo a 1 coluna em phones pequenos */
+  .v2-content [style*="minmax("] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Cards muito largos colapsam tabela */
+  .v2-content table {
+    font-size: 11.5px;
+  }
 }
