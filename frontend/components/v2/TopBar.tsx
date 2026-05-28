@@ -147,29 +147,7 @@ export default function TopBar() {
           gap: 'clamp(10px, 2vw, 24px)',
         }}
       >
-        <button
-          className="topbar-burger"
-          onClick={() => setOpen((v) => !v)}
-          aria-label={open ? 'Fechar menu' : 'Abrir menu'}
-          aria-expanded={open}
-          style={{
-            display: 'none',
-            width: 42, height: 42,
-            background: 'transparent',
-            border: '1px solid var(--border-strong)',
-            borderRadius: 10,
-            cursor: 'pointer',
-            color: 'var(--ink)',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-            padding: 0,
-            position: 'relative',
-          }}
-        >
-          <BurgerIcon open={open} />
-        </button>
-
+        {/* LOGO + BRAND — sempre à esquerda */}
         <Link
           href="/v2"
           style={{
@@ -202,6 +180,7 @@ export default function TopBar() {
           </span>
         </Link>
 
+        {/* Nav desktop OU spacer flex em mobile */}
         <nav
           className="topbar-nav-desktop"
           style={{
@@ -237,6 +216,14 @@ export default function TopBar() {
           })}
         </nav>
 
+        {/* Spacer apenas em mobile — empurra hamburger para a direita */}
+        <span
+          className="topbar-mobile-spacer"
+          style={{ display: 'none', flex: 1 }}
+          aria-hidden="true"
+        />
+
+        {/* Right cluster desktop */}
         <div
           className="topbar-right-desktop"
           style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}
@@ -255,8 +242,40 @@ export default function TopBar() {
             {time}
           </span>
         </div>
+
+        {/* HAMBURGER VEGGIE — verde escuro Planta com linhas creme — à DIREITA */}
+        <button
+          className="topbar-burger"
+          onClick={() => setOpen((v) => !v)}
+          aria-label={open ? 'Fechar menu' : 'Abrir menu'}
+          aria-expanded={open}
+          style={{
+            display: 'none',
+            width: 44, height: 44,
+            background: open ? 'var(--ink, #0D1A0F)' : 'var(--green-dark, #1B3A21)',
+            border: 'none',
+            borderRadius: 12,
+            cursor: 'pointer',
+            color: '#F5F3EC',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            padding: 0,
+            position: 'relative',
+            boxShadow: open
+              ? '0 4px 14px rgba(13, 26, 15, 0.28)'
+              : '0 2px 10px rgba(27, 58, 33, 0.22)',
+            transition: 'background 0.24s, box-shadow 0.24s, transform 0.18s',
+          }}
+          onMouseDown={(e) => { e.currentTarget.style.transform = 'scale(0.94)'; }}
+          onMouseUp={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+        >
+          <BurgerIcon open={open} />
+        </button>
       </header>
 
+      {/* BACKDROP */}
       <div
         className="topbar-backdrop"
         onClick={() => setOpen(false)}
@@ -273,6 +292,7 @@ export default function TopBar() {
         aria-hidden="true"
       />
 
+      {/* DRAWER — agora vem da DIREITA porque o hamburger está à direita */}
       <aside
         className="topbar-drawer"
         role="dialog"
@@ -280,18 +300,19 @@ export default function TopBar() {
         aria-label="Menu de navegação"
         style={{
           position: 'fixed',
-          top: 0, left: 0, bottom: 0,
-          width: 'min(340px, 88vw)',
+          top: 0, right: 0, bottom: 0,
+          width: 'min(360px, 90vw)',
           background: 'white',
           zIndex: 99,
-          boxShadow: open ? '0 0 60px rgba(13, 26, 15, 0.18)' : 'none',
-          transform: open ? 'translateX(0)' : 'translateX(-100%)',
+          boxShadow: open ? '-10px 0 60px rgba(13, 26, 15, 0.18)' : 'none',
+          transform: open ? 'translateX(0)' : 'translateX(100%)',
           transition: 'transform 0.32s cubic-bezier(0.32, 0.72, 0, 1)',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
         }}
       >
+        {/* TOPO — logo + close */}
         <div style={{
           display: 'flex',
           alignItems: 'center',
@@ -337,6 +358,7 @@ export default function TopBar() {
           </button>
         </div>
 
+        {/* KPIs LIVE */}
         <div style={{
           padding: '14px 20px',
           borderBottom: '1px solid var(--border)',
@@ -386,6 +408,7 @@ export default function TopBar() {
           </div>
         </div>
 
+        {/* SEARCH */}
         <div style={{
           padding: '12px 20px',
           borderBottom: '1px solid var(--border)',
@@ -435,6 +458,7 @@ export default function TopBar() {
           </div>
         </div>
 
+        {/* LISTA navegável */}
         <div style={{
           flex: 1,
           overflowY: 'auto',
@@ -481,6 +505,7 @@ export default function TopBar() {
           ))}
         </div>
 
+        {/* FOOTER */}
         <div style={{
           padding: '12px 20px',
           borderTop: '1px solid var(--border)',
@@ -501,10 +526,11 @@ export default function TopBar() {
 
       <style jsx global>{`
         .topbar-nav-desktop::-webkit-scrollbar { display: none; }
-        
+
         @media (max-width: 920px) {
           .topbar-nav-desktop { display: none !important; }
           .topbar-right-desktop { display: none !important; }
+          .topbar-mobile-spacer { display: block !important; }
           .topbar-burger { display: flex !important; }
         }
 
@@ -524,31 +550,44 @@ export default function TopBar() {
   );
 }
 
+/* ──── Hamburger Veggie ─────────────────────────────────────────────
+   3 linhas creme (#F5F3EC) sobre fundo verde escuro Planta.
+   Cada linha com largura diferente: 18px, 14px, 18px — toque orgânico.
+   Ao abrir, animação fluida para X.
+   ─────────────────────────────────────────────────────────────────── */
 function BurgerIcon({ open }: { open: boolean }) {
   const baseLine: React.CSSProperties = {
     position: 'absolute',
-    left: 11, width: 20, height: 2,
-    background: 'currentColor',
+    height: 2,
+    background: '#F5F3EC',
     borderRadius: 2,
-    transition: 'all 0.32s cubic-bezier(0.32, 0.72, 0, 1)',
+    transition: 'all 0.34s cubic-bezier(0.32, 0.72, 0, 1)',
     transformOrigin: 'center',
   };
   return (
-    <span style={{ position: 'relative', width: 20, height: 14, display: 'inline-block' }}>
+    <span style={{ position: 'relative', width: 22, height: 14, display: 'inline-block' }}>
+      {/* Linha de cima */}
       <span style={{
         ...baseLine,
-        top: open ? 6 : 1,
+        top: open ? 6 : 0,
+        left: open ? 0 : 0,
+        width: open ? 22 : 18,
         transform: open ? 'rotate(45deg)' : 'rotate(0)',
       }} />
+      {/* Linha do meio — mais curta (toque orgânico) */}
       <span style={{
         ...baseLine,
         top: 6,
+        left: open ? 0 : 4,
+        width: open ? 0 : 14,
         opacity: open ? 0 : 1,
-        transform: open ? 'translateX(-8px)' : 'translateX(0)',
       }} />
+      {/* Linha de baixo */}
       <span style={{
         ...baseLine,
-        top: open ? 6 : 11,
+        top: open ? 6 : 12,
+        left: open ? 0 : 0,
+        width: open ? 22 : 18,
         transform: open ? 'rotate(-45deg)' : 'rotate(0)',
       }} />
     </span>
