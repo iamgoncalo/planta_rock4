@@ -321,9 +321,14 @@ function Chat2Inner() {
   const handledQuery = useRef<string | null>(null);
 
   useEffect(() => {
-    const list = loadConversations();
+    // Limpa conversas vazias (sem mensagens) que tenham ficado guardadas.
+    const list = loadConversations().filter((c) => c.messages && c.messages.length > 0);
+    saveConversations(list);
     setConversations(list);
-    if (list.length) setActiveId(list[0].id);
+    // Abre SEMPRE conversa nova em branco (activeId=null). O historico lateral
+    // mantem as conversas com mensagens para voltar. Conversas vazias nunca
+    // sao guardadas — so nascem no primeiro envio.
+    setActiveId(null);
   }, []);
 
   // Coordenadas vêm da fonte de verdade (igual ao /twin). Se falhar, fica o fallback.
