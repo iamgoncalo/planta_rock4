@@ -436,6 +436,7 @@ async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   state: () => getJson<StateResponse>('/api/v1/state'),
   clusters: () => getJson<ClustersResponse>('/api/v1/clusters'),
+  clustersGeo: () => getJson<any>('/api/v1/clusters/geo'),
   kpis: () => getJson<KPIs>('/api/v1/kpis'),
   sensors: () => getJson<BackendSensor[]>('/api/v1/sensors'),
   sensorsSummary: () => getJson<SensorsSummary>('/api/v1/sensors/summary'),

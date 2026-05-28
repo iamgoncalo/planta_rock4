@@ -1,363 +1,342 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLive, type LiveSnapshot } from '@/components/v2/LiveContext';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://api.plantarockinrio.com';
 
-// Layout 2D dos 8 clusters num plano (Parque Tejo)
-// Coordenadas baseadas no SVG masterplan R08 24/03/2026
-// (relativo a uma área de 530m × 380m)
-const CLUSTER_LAYOUT: Record<string, { x: number; z: number; size: number; unisex: boolean }> = {
-  'wc-01': { x: -180,  z:  80, size: 25, unisex: false },
-  'wc-02': { x:  -80,  z: 130, size: 28, unisex: false },
-  'wc-03': { x:   60,  z: -40, size: 24, unisex: false },
-  'wc-04': { x:  140,  z:  60, size: 28, unisex: false },
-  'wc-05': { x:  200,  z: -80, size: 38, unisex: true  },
-  'wc-06': { x:  -60,  z: -100, size: 42, unisex: true  },
-  'wc-07': { x: -200,  z: -60, size: 26, unisex: false },
-  'wc-08': { x:   50,  z: 140, size: 28, unisex: false },
-};
+/* ════════════════════════════════════════════════════════════════════
+   TIPOS — payload de /api/v1/clusters/geo (fonte de verdade)
+   ════════════════════════════════════════════════════════════════════ */
 
-interface ClusterPayload {
-  cluster_id: string;
-  ts: number;
-  params: {
-    pessoas_estimadas: number;
-    ocupacao_instantanea: number;
-    is_unissex?: boolean;
-    capacidade_total?: number;
-  };
+interface GeoCluster {
+  id: string;
+  e_m: number;
+  n_m: number;
+  gps_lat: number;
+  gps_lon: number;
+  type: 'MF' | 'UNI';
+  unisex: boolean;
+  desc: string;
+  cap_m: number | null;
+  cap_f: number | null;
+  cap: number | null;
+  capacity_total: number;
+}
+interface GeoLandmark { id: string; label: string; e_m: number; n_m: number; kind: string; }
+interface GeoPayload {
+  anchor_gps: { lat: number; lon: number };
+  span_e_m: number;
+  span_n_m: number;
+  clusters: GeoCluster[];
+  landmarks: GeoLandmark[];
+  total_clusters: number;
 }
 
+/* Fallback em memória — MESMAS coordenadas da fonte de verdade (nunca ecrã vazio) */
+const FALLBACK_GEO: GeoPayload = {
+  anchor_gps: { lat: 38.78145, lon: -9.0943 },
+  span_e_m: 298.5,
+  span_n_m: 327.3,
+  clusters: [
+    { id: 'WC-01', e_m: 215.2, n_m: 327.3, gps_lat: 38.78439, gps_lon: -9.09182, type: 'MF', unisex: false, desc: 'V34 · junto ao Parque P1', cap_m: 72, cap_f: 63, cap: null, capacity_total: 135 },
+    { id: 'WC-02', e_m: 256.9, n_m: 286.1, gps_lat: 38.78402, gps_lon: -9.09134, type: 'MF', unisex: false, desc: 'V35 · feminino dominante', cap_m: 54, cap_f: 72, cap: null, capacity_total: 126 },
+    { id: 'WC-03', e_m: 268.2, n_m: 194.8, gps_lat: 38.7832, gps_lon: -9.091209, type: 'MF', unisex: false, desc: 'S36 · entrada principal', cap_m: 54, cap_f: 48, cap: null, capacity_total: 102 },
+    { id: 'WC-04', e_m: 298.5, n_m: 288.3, gps_lat: 38.78404, gps_lon: -9.09086, type: 'MF', unisex: false, desc: 'S37 · cota +20 m (ADA)', cap_m: 84, cap_f: 66, cap: null, capacity_total: 150 },
+    { id: 'WC-05', e_m: 274.2, n_m: 238.2, gps_lat: 38.78359, gps_lon: -9.09114, type: 'UNI', unisex: true, desc: 'M38 · só entrada', cap_m: null, cap_f: null, cap: 133, capacity_total: 133 },
+    { id: 'WC-06', e_m: 60.7, n_m: 82.4, gps_lat: 38.78219, gps_lon: -9.093601, type: 'UNI', unisex: true, desc: 'W39/S39 · maior cluster', cap_m: null, cap_f: null, cap: 208, capacity_total: 208 },
+    { id: 'WC-07', e_m: 228.2, n_m: 148.1, gps_lat: 38.78278, gps_lon: -9.09167, type: 'MF', unisex: false, desc: 'M40 · cacifos', cap_m: 84, cap_f: 54, cap: null, capacity_total: 138 },
+    { id: 'WC-08', e_m: 0.0, n_m: 0.0, gps_lat: 38.78145, gps_lon: -9.0943, type: 'MF', unisex: false, desc: 'V41 · produção', cap_m: 84, cap_f: 61, cap: null, capacity_total: 145 },
+  ],
+  landmarks: [
+    { id: 'ENTRADA', label: 'Entrada Principal', e_m: 290, n_m: 175, kind: 'entrance' },
+    { id: 'PALCO_MUNDO', label: 'Palco Mundo', e_m: 70, n_m: 120, kind: 'stage' },
+    { id: 'MUSIC_VALLEY', label: 'Music Valley', e_m: 30, n_m: 60, kind: 'stage' },
+    { id: 'SUPER_BOCK', label: 'Super Bock', e_m: 120, n_m: 70, kind: 'stage' },
+  ],
+  total_clusters: 8,
+};
+
+/* ════════════════════════════════════════════════════════════════════
+   MOTOR DE COORDENADAS — metros → ecrã (§ENGINE)
+   ════════════════════════════════════════════════════════════════════ */
+
+const VB = 1000;
+const PAD = 0.12 * VB;
+
+function makeEngine(geo: GeoPayload) {
+  const spanE = geo.span_e_m;
+  const spanN = geo.span_n_m;
+  const S = (VB - 2 * PAD) / Math.max(spanE, spanN); // px por metro
+  const offX = (VB - 2 * PAD - spanE * S) / 2;
+  const offY = (VB - 2 * PAD - spanN * S) / 2;
+  const x = (e_m: number) => PAD + offX + e_m * S;
+  const y = (n_m: number) => VB - PAD - offY - n_m * S; // inverte Y: Norte em cima
+  return { S, x, y };
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   ESTADO AO VIVO + DISTÂNCIAS
+   ════════════════════════════════════════════════════════════════════ */
+
+type State = 'ok' | 'warn' | 'crit';
+function occState(occ: number): State {
+  if (occ >= 85) return 'crit';
+  if (occ >= 65) return 'warn';
+  return 'ok';
+}
+const STATE_VAR: Record<State, string> = {
+  ok: 'var(--ok, #6FAF82)',
+  warn: 'var(--warn, #D48B3A)',
+  crit: 'var(--critical, #C25A1A)',
+};
+const STATE_LABEL: Record<State, string> = { ok: 'Livre', warn: 'Moderado', crit: 'Cheio' };
+
+function liveOcc(snapshot: LiveSnapshot | null, id: string): number | null {
+  const c = snapshot?.clusters?.find((x) => x.cluster_id.toLowerCase() === id.toLowerCase());
+  if (!c) return null;
+  return Math.round(c.params?.ocupacao_instantanea ?? 0);
+}
+function distM(a: GeoCluster, b: GeoCluster): number {
+  return Math.hypot(a.e_m - b.e_m, a.n_m - b.n_m);
+}
+
+/* ════════════════════════════════════════════════════════════════════
+   COMPONENTE
+   ════════════════════════════════════════════════════════════════════ */
+
 export default function TwinPage() {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [snap, setSnap] = useState<ClusterPayload[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [streamOk, setStreamOk] = useState(false);
-  const sceneStateRef = useRef<{
-    THREE?: any;
-    renderer?: any;
-    scene?: any;
-    camera?: any;
-    controls?: any;
-    bars?: Map<string, any>;
-    labels?: Map<string, any>;
-    targetOcc?: Map<string, number>;
-    animationId?: number;
-  }>({});
+  const { snapshot, connection } = useLive();
+  const [geo, setGeo] = useState<GeoPayload>(FALLBACK_GEO);
+  const [usedFallback, setUsedFallback] = useState(false);
+  const [origin, setOrigin] = useState<string | null>(null); // cluster escolhido como "estou aqui"
 
-  // Carregar three.js + OrbitControls via CDN dinamicamente
   useEffect(() => {
-    if (!containerRef.current) return;
-
-    const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
-      if (document.querySelector(`script[src="${src}"]`)) {
-        resolve();
-        return;
-      }
-      const s = document.createElement('script');
-      s.src = src;
-      s.async = true;
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error(`failed to load ${src}`));
-      document.head.appendChild(s);
-    });
-
-    let mounted = true;
-
+    let cancelled = false;
     (async () => {
-      await loadScript('https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js');
-      await loadScript('https://cdn.jsdelivr.net/npm/three@0.158.0/examples/js/controls/OrbitControls.js');
-      if (!mounted || !containerRef.current) return;
-
-      // @ts-ignore
-      const THREE = (window as any).THREE;
-      if (!THREE) return;
-      sceneStateRef.current.THREE = THREE;
-
-      const container = containerRef.current;
-      const w = container.clientWidth;
-      const h = container.clientHeight;
-
-      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setSize(w, h);
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-      container.appendChild(renderer.domElement);
-      sceneStateRef.current.renderer = renderer;
-
-      const scene = new THREE.Scene();
-      scene.background = new THREE.Color('#F4F2EB');
-      sceneStateRef.current.scene = scene;
-
-      const camera = new THREE.PerspectiveCamera(50, w / h, 1, 5000);
-      camera.position.set(280, 280, 380);
-      camera.lookAt(0, 0, 0);
-      sceneStateRef.current.camera = camera;
-
-      // OrbitControls
-      // @ts-ignore
-      const controls = new THREE.OrbitControls(camera, renderer.domElement);
-      controls.enableDamping = true;
-      controls.dampingFactor = 0.08;
-      controls.maxPolarAngle = Math.PI / 2 - 0.05;
-      sceneStateRef.current.controls = controls;
-
-      // Lights
-      const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-      scene.add(ambient);
-      const dir = new THREE.DirectionalLight(0xffffff, 0.7);
-      dir.position.set(120, 240, 200);
-      scene.add(dir);
-
-      // Chão (Parque Tejo)
-      const groundGeo = new THREE.PlaneGeometry(600, 440);
-      const groundMat = new THREE.MeshLambertMaterial({ color: '#E8E2D1' });
-      const ground = new THREE.Mesh(groundGeo, groundMat);
-      ground.rotation.x = -Math.PI / 2;
-      ground.position.y = 0;
-      scene.add(ground);
-
-      // Grelha
-      const grid = new THREE.GridHelper(600, 30, '#C9C1AC', '#D8D2BD');
-      grid.position.y = 0.02;
-      scene.add(grid);
-
-      // Palco Mundo (referência)
-      const stageGeo = new THREE.BoxGeometry(200, 18, 60);
-      const stageMat = new THREE.MeshLambertMaterial({ color: '#1B3A21' });
-      const stage = new THREE.Mesh(stageGeo, stageMat);
-      stage.position.set(0, 9, 180);
-      scene.add(stage);
-
-      // 8 clusters como prismas
-      const bars = new Map<string, any>();
-      const labels = new Map<string, any>();
-      const targetOcc = new Map<string, number>();
-
-      Object.entries(CLUSTER_LAYOUT).forEach(([id, layout]) => {
-        const size = layout.size;
-        const initialHeight = 12;
-        const geo = new THREE.BoxGeometry(size, initialHeight, size);
-        const mat = new THREE.MeshLambertMaterial({
-          color: layout.unisex ? '#7A4A8E' : '#4A7C59',
-        });
-        const bar = new THREE.Mesh(geo, mat);
-        bar.position.set(layout.x, initialHeight / 2, layout.z);
-        bar.userData = { clusterId: id, baseSize: size };
-        scene.add(bar);
-        bars.set(id, bar);
-        targetOcc.set(id, 0);
-
-        // Texto label via sprite (canvas)
-        const cnv = document.createElement('canvas');
-        cnv.width = 256; cnv.height = 96;
-        const ctx = cnv.getContext('2d')!;
-        ctx.fillStyle = layout.unisex ? '#7A4A8E' : '#1B3A21';
-        ctx.font = 'bold 64px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText(id.toUpperCase(), 128, 60);
-        const tex = new THREE.CanvasTexture(cnv);
-        const spriteMat = new THREE.SpriteMaterial({ map: tex, transparent: true });
-        const sprite = new THREE.Sprite(spriteMat);
-        sprite.position.set(layout.x, 60, layout.z);
-        sprite.scale.set(40, 15, 1);
-        scene.add(sprite);
-        labels.set(id, sprite);
-      });
-
-      sceneStateRef.current.bars = bars;
-      sceneStateRef.current.labels = labels;
-      sceneStateRef.current.targetOcc = targetOcc;
-
-      // Raycaster — click
-      const raycaster = new THREE.Raycaster();
-      const mouse = new THREE.Vector2();
-      renderer.domElement.addEventListener('click', (ev: MouseEvent) => {
-        const rect = renderer.domElement.getBoundingClientRect();
-        mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
-        mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
-        raycaster.setFromCamera(mouse, camera);
-        const hits = raycaster.intersectObjects(Array.from(bars.values()));
-        if (hits.length > 0) {
-          const id = hits[0].object.userData.clusterId;
-          setSelected(id);
-        }
-      });
-
-      // Animate loop
-      const animate = () => {
-        const id = requestAnimationFrame(animate);
-        sceneStateRef.current.animationId = id;
-        // Suavizar altura para target
-        bars.forEach((bar: any, clusterId: string) => {
-          const target = targetOcc.get(clusterId) || 0;
-          const targetHeight = 12 + target * 0.8;  // 0% → 12; 100% → 92
-          const currentH = bar.geometry.parameters.height;
-          if (Math.abs(currentH - targetHeight) > 0.5) {
-            const newH = currentH + (targetHeight - currentH) * 0.08;
-            bar.geometry.dispose();
-            bar.geometry = new THREE.BoxGeometry(bar.userData.baseSize, newH, bar.userData.baseSize);
-            bar.position.y = newH / 2;
-            // Cor: gradiente verde→amarelo→vermelho com ocupação
-            const occ = target;
-            let color;
-            if (occ < 60) color = '#4A7C59';
-            else if (occ < 80) color = '#A85D00';
-            else color = '#C25A1A';
-            const isUni = CLUSTER_LAYOUT[clusterId]?.unisex;
-            (bar.material as any).color.set(isUni ? '#7A4A8E' : color);
-          }
-        });
-
-        controls.update();
-        renderer.render(scene, camera);
-      };
-      animate();
-
-      // Resize
-      const handleResize = () => {
-        if (!container) return;
-        const w2 = container.clientWidth;
-        const h2 = container.clientHeight;
-        camera.aspect = w2 / h2;
-        camera.updateProjectionMatrix();
-        renderer.setSize(w2, h2);
-      };
-      window.addEventListener('resize', handleResize);
-    })();
-
-    return () => {
-      mounted = false;
-      const s = sceneStateRef.current;
-      if (s.animationId) cancelAnimationFrame(s.animationId);
-      if (s.renderer) {
-        s.renderer.dispose();
-        if (s.renderer.domElement.parentNode) {
-          s.renderer.domElement.parentNode.removeChild(s.renderer.domElement);
-        }
-      }
-    };
-  }, []);
-
-  // SSE para actualizar alturas dos prismas
-  useEffect(() => {
-    const es = new EventSource(`${API_BASE}/api/v1/telemetry/clusters/stream`);
-    es.onopen = () => setStreamOk(true);
-    es.onerror = () => setStreamOk(false);
-    es.onmessage = (ev) => {
       try {
-        const data = JSON.parse(ev.data);
-        const clusters: ClusterPayload[] = data.clusters || [];
-        setSnap(clusters);
-        const tgt = sceneStateRef.current.targetOcc;
-        if (tgt) {
-          clusters.forEach(c => {
-            tgt.set(c.cluster_id, c.params.ocupacao_instantanea);
-          });
-        }
-      } catch {}
-    };
-    return () => es.close();
+        const r = await fetch(`${API_BASE}/api/v1/clusters/geo`, { cache: 'no-store' });
+        if (!r.ok) throw new Error(String(r.status));
+        const j: GeoPayload = await r.json();
+        if (!cancelled && j?.clusters?.length) { setGeo(j); setUsedFallback(false); }
+      } catch {
+        if (!cancelled) setUsedFallback(true);
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  const selectedCluster = snap.find(c => c.cluster_id === selected);
+  const eng = useMemo(() => makeEngine(geo), [geo]);
+
+  // ocupação por cluster
+  const occById = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of geo.clusters) {
+      const o = liveOcc(snapshot, c.id);
+      m.set(c.id, o ?? 0);
+    }
+    return m;
+  }, [geo, snapshot]);
+
+  // recomendação a partir da origem
+  const recommendation = useMemo(() => {
+    if (!origin) return null;
+    const from = geo.clusters.find((c) => c.id === origin);
+    if (!from) return null;
+    const ranked = geo.clusters
+      .filter((c) => c.id !== origin)
+      .map((c) => ({ c, d: distM(from, c), occ: occById.get(c.id) ?? 0 }))
+      .filter((r) => r.occ < 85)
+      .sort((a, b) => a.d - b.d);
+    const best = ranked[0] ?? geo.clusters
+      .filter((c) => c.id !== origin)
+      .map((c) => ({ c, d: distM(from, c), occ: occById.get(c.id) ?? 0 }))
+      .sort((a, b) => a.occ - b.occ)[0];
+    if (!best) return null;
+    const walkMin = Math.max(1, Math.round(best.d / (1.35 * 60)));
+    return { from, to: best.c, dist: Math.round(best.d), walkMin, occ: best.occ, allFull: ranked.length === 0 };
+  }, [origin, geo, occById]);
+
+  const live = connection === 'sse' || connection === 'polling';
+  const scaleBarPx = 100 * eng.S; // 100 metros
 
   return (
-    <div style={{ padding: '24px 24px 96px', maxWidth: 1400, margin: '0 auto' }}>
-      <div style={{ marginBottom: 14 }}>
-        <div className="section-label">Sistema · Digital Twin 3D</div>
-        <h1 className="serif" style={{
-          fontSize: 'clamp(26px, 4vw, 40px)',
-          fontWeight: 500, color: 'var(--color-ink)', lineHeight: 1.1, marginBottom: 6,
-        }}>
-          Parque Tejo · Twin
-        </h1>
-        <p style={{ color: 'var(--color-muted)', fontSize: 13 }}>
-          8 clusters como prismas · altura = ocupação · cor = pressão · 
-          <span style={{ color: '#7A4A8E', fontWeight: 600, marginLeft: 4 }}>roxo</span> = unissex (WC-05, WC-06) · 
-          arrasta para rodar · roda para zoom
-          {streamOk && <span style={{ color: '#4A7C59', marginLeft: 8 }}>● stream activo</span>}
-        </p>
-      </div>
-
-      {/* CANVAS 3D */}
-      <div
-        ref={containerRef}
-        style={{
-          width: '100%',
-          height: 'min(70vh, 600px)',
-          background: '#F4F2EB',
-          borderRadius: 12,
-          overflow: 'hidden',
-          border: '1px solid var(--color-border)',
-        }}
-      />
-
-      {/* Mini KPIs row */}
-      <div style={{
-        marginTop: 12,
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-        gap: 8,
-      }}>
-        {snap.map(c => {
-          const isUni = ['wc-05', 'wc-06'].includes(c.cluster_id);
-          const occ = c.params.ocupacao_instantanea;
-          const color = isUni ? '#7A4A8E' : occ >= 80 ? '#C25A1A' : occ >= 60 ? '#A85D00' : '#4A7C59';
-          return (
-            <div
-              key={c.cluster_id}
-              onClick={() => setSelected(c.cluster_id)}
-              style={{
-                background: 'white',
-                border: selected === c.cluster_id
-                  ? `2px solid ${color}`
-                  : '1px solid var(--color-border)',
-                borderRadius: 8,
-                padding: 10,
-                cursor: 'pointer',
-              }}
-            >
-              <div className="mono" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-ink)' }}>
-                {c.cluster_id.toUpperCase()}
-                {isUni && <span style={{ fontSize: 8, color: '#7A4A8E', marginLeft: 4 }}>U</span>}
-              </div>
-              <div style={{ fontSize: 18, fontWeight: 700, color, lineHeight: 1.1, marginTop: 3 }}>
-                {occ}%
-              </div>
-              <div className="mono" style={{ fontSize: 9, color: 'var(--color-muted)', marginTop: 2 }}>
-                {c.params.pessoas_estimadas} pessoas
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Selected detail */}
-      {selectedCluster && (
-        <div style={{
-          marginTop: 14, padding: 14,
-          background: 'white', border: '1px solid var(--color-border)',
-          borderRadius: 10,
-        }}>
-          <h3 className="serif" style={{ fontSize: 20, fontWeight: 500, marginBottom: 8 }}>
-            Cluster {selectedCluster.cluster_id.toUpperCase()}
-            {selectedCluster.params.is_unissex && (
-              <span style={{
-                fontSize: 11, marginLeft: 8,
-                background: '#F3EAFF', color: '#7A4A8E',
-                padding: '2px 8px', borderRadius: 999,
-                fontWeight: 700, letterSpacing: '0.08em',
-              }}>UNISSEX</span>
-            )}
-          </h3>
-          <div className="mono" style={{ fontSize: 11, color: 'var(--color-muted)' }}>
-            Ocupação <strong style={{ color: 'var(--color-ink)' }}>{selectedCluster.params.ocupacao_instantanea}%</strong>
-            {' · '}Pessoas <strong style={{ color: 'var(--color-ink)' }}>{selectedCluster.params.pessoas_estimadas}</strong>
-            {' · '}Capacidade <strong style={{ color: 'var(--color-ink)' }}>{selectedCluster.params.capacidade_total ?? '—'}</strong>
-          </div>
+    <div className="tw-root">
+      {/* HUD topo */}
+      <div className="tw-hud">
+        <div>
+          <div className="tw-eyebrow">PlantaOS · Digital Twin</div>
+          <h1 className="tw-title">Parque Tejo <span className="tw-sub">onde estás · WC mais perto</span></h1>
         </div>
-      )}
+        <div className="tw-conn">
+          <span className="tw-conn-dot" style={{ background: live ? 'var(--ok, #6FAF82)' : 'var(--offline, #6B7280)' }} />
+          {live ? 'ao vivo' : (usedFallback ? 'a religar…' : 'a ligar…')}
+        </div>
+      </div>
+
+      {/* MAPA */}
+      <div className="tw-map">
+        <svg viewBox={`0 0 ${VB} ${VB}`} preserveAspectRatio="xMidYMid meet" className="tw-svg">
+          {/* parcela do recinto */}
+          <rect
+            x={eng.x(0) - 30} y={eng.y(geo.span_n_m) - 30}
+            width={(geo.span_e_m * eng.S) + 60} height={(geo.span_n_m * eng.S) + 60}
+            rx="28" fill="var(--parcel, #F4F8EC)" stroke="var(--parcel-edge, #C9DDB6)" strokeWidth="2"
+          />
+
+          {/* Rio Tejo a sul (parte de baixo) */}
+          <rect x="0" y={VB - PAD * 0.55} width={VB} height={PAD * 0.55} fill="var(--water, #BFE0E8)" opacity="0.6" />
+          <text x={PAD} y={VB - 14} fontSize="15" fill="var(--ink, #1B3A21)" opacity="0.5" fontStyle="italic">Rio Tejo</text>
+
+          {/* Landmarks (palcos + entrada) */}
+          {geo.landmarks.map((l) => (
+            <g key={l.id} transform={`translate(${eng.x(l.e_m)}, ${eng.y(l.n_m)})`}>
+              <rect x="-46" y="-13" width="92" height="26" rx="13"
+                fill={l.kind === 'entrance' ? 'var(--ink, #1B3A21)' : 'rgba(27,58,33,0.08)'}
+                stroke={l.kind === 'entrance' ? 'none' : 'var(--parcel-edge, #C9DDB6)'} />
+              <text x="0" y="4" fontSize="13" textAnchor="middle"
+                fill={l.kind === 'entrance' ? '#fff' : 'var(--ink, #1B3A21)'} fontWeight="600">{l.label}</text>
+            </g>
+          ))}
+
+          {/* Caminho recomendado */}
+          {recommendation && (
+            <line
+              x1={eng.x(recommendation.from.e_m)} y1={eng.y(recommendation.from.n_m)}
+              x2={eng.x(recommendation.to.e_m)} y2={eng.y(recommendation.to.n_m)}
+              stroke="var(--route, #4A7C59)" strokeWidth="4" strokeDasharray="10 8" strokeLinecap="round"
+              className="tw-route"
+            />
+          )}
+
+          {/* Clusters */}
+          {geo.clusters.map((c, i) => {
+            const occ = occById.get(c.id) ?? 0;
+            const st = occState(occ);
+            const cx = eng.x(c.e_m);
+            const cy = eng.y(c.n_m);
+            const isOrigin = origin === c.id;
+            const isReco = recommendation?.to.id === c.id;
+            const r = c.unisex ? 34 : 28;
+            return (
+              <g key={c.id} transform={`translate(${cx}, ${cy})`} className="tw-node"
+                style={{ ['--delay' as any]: `${i * 70}ms`, cursor: 'pointer' }}
+                onClick={() => setOrigin(isOrigin ? null : c.id)}>
+                {isReco && <circle r={r + 12} fill="none" stroke="var(--route, #4A7C59)" strokeWidth="2.5" opacity="0.7" className="tw-reco-ring" />}
+                <circle r={r} fill="#fff" stroke={STATE_VAR[st]} strokeWidth="4"
+                  className={st === 'crit' ? 'tw-crit' : ''} />
+                <text x="0" y="-2" fontSize={c.unisex ? 16 : 14} textAnchor="middle" fontWeight="700" fill="var(--ink, #1B3A21)">
+                  {c.id.replace('WC-', '')}
+                </text>
+                <text x="0" y="15" fontSize="11" textAnchor="middle" fontWeight="600" fill={STATE_VAR[st]}>
+                  {occ}%
+                </text>
+                {/* etiqueta de tipo */}
+                <text x="0" y={r + 16} fontSize="10" textAnchor="middle" fill="var(--ink, #1B3A21)" opacity="0.55">
+                  {c.unisex ? 'unissexo' : 'M/F'}
+                </text>
+                {isOrigin && (
+                  <g className="tw-you">
+                    <circle r={r + 18} fill="none" stroke="var(--you, #1B3A21)" strokeWidth="3" />
+                    <rect x="-44" y={-(r + 42)} width="88" height="24" rx="12" fill="var(--you, #1B3A21)" />
+                    <text x="0" y={-(r + 25)} fontSize="12" textAnchor="middle" fill="#fff" fontWeight="700">ESTÁS AQUI</text>
+                  </g>
+                )}
+              </g>
+            );
+          })}
+
+          {/* Norte */}
+          <g transform={`translate(${VB - PAD * 0.7}, ${PAD * 0.7})`}>
+            <line x1="0" y1="14" x2="0" y2="-14" stroke="var(--ink, #1B3A21)" strokeWidth="2.5" />
+            <polygon points="0,-18 -5,-8 5,-8" fill="var(--ink, #1B3A21)" />
+            <text x="0" y="30" fontSize="13" textAnchor="middle" fontWeight="700" fill="var(--ink, #1B3A21)">N</text>
+          </g>
+
+          {/* Barra de escala 100 m */}
+          <g transform={`translate(${PAD}, ${VB - PAD * 0.62})`}>
+            <line x1="0" y1="0" x2={scaleBarPx} y2="0" stroke="var(--ink, #1B3A21)" strokeWidth="3" />
+            <line x1="0" y1="-5" x2="0" y2="5" stroke="var(--ink, #1B3A21)" strokeWidth="3" />
+            <line x1={scaleBarPx} y1="-5" x2={scaleBarPx} y2="5" stroke="var(--ink, #1B3A21)" strokeWidth="3" />
+            <text x={scaleBarPx / 2} y="-9" fontSize="13" textAnchor="middle" fontWeight="600" fill="var(--ink, #1B3A21)">100 metros</text>
+          </g>
+        </svg>
+      </div>
+
+      {/* Faixa inferior: recomendação ou convite */}
+      <div className="tw-bar">
+        {!origin && (
+          <div className="tw-hint">Toca num WC para definires onde estás · mostro-te o mais rápido a partir daí.</div>
+        )}
+        {origin && recommendation && (
+          <div className="tw-reco">
+            <div className="tw-reco-from">
+              <span className="tw-reco-label">Estás em</span>
+              <span className="tw-reco-wc">{recommendation.from.id}</span>
+            </div>
+            <span className="tw-reco-arrow">→</span>
+            <div className="tw-reco-to">
+              <span className="tw-reco-label">{recommendation.allFull ? 'Menos cheio' : 'Mais perto e livre'}</span>
+              <span className="tw-reco-wc" style={{ color: 'var(--route, #4A7C59)' }}>{recommendation.to.id}</span>
+            </div>
+            <div className="tw-reco-metrics">
+              <span><strong>{recommendation.dist}</strong> m</span>
+              <span><strong>{recommendation.walkMin}</strong> min</span>
+              <span style={{ color: STATE_VAR[occState(recommendation.occ)] }}>{STATE_LABEL[occState(recommendation.occ)]}</span>
+            </div>
+            <button className="tw-reco-clear" onClick={() => setOrigin(null)} aria-label="Limpar">✕</button>
+          </div>
+        )}
+      </div>
+
+      <style jsx>{`
+        .tw-root {
+          position: fixed; top: var(--topbar-h, 72px); left: 0; right: 0; bottom: 0;
+          display: flex; flex-direction: column; overflow: hidden;
+          background: var(--paper, #EAF3DF); color: var(--ink, #1B3A21);
+        }
+        .tw-hud { flex-shrink: 0; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: clamp(10px,1.4vw,18px) clamp(14px,2.6vw,34px) 0; }
+        .tw-eyebrow { font-size: 10px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; opacity: 0.5; }
+        .tw-title { font-size: clamp(20px,2.8vw,36px); font-weight: 800; letter-spacing: -0.03em; line-height: 1; margin-top: 4px; }
+        .tw-sub { font-size: 0.42em; font-weight: 500; opacity: 0.55; margin-left: 8px; letter-spacing: 0; }
+        .tw-conn { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; opacity: 0.7; flex-shrink: 0; }
+        .tw-conn-dot { width: 8px; height: 8px; border-radius: 50%; animation: tw-pulse 1.8s ease-in-out infinite; }
+
+        .tw-map { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 4px clamp(8px,2vw,28px); }
+        .tw-svg { width: 100%; height: 100%; max-width: min(92vh, 100%); display: block; }
+
+        .tw-node { animation: tw-pop 0.5s cubic-bezier(0.2,0.7,0.2,1) backwards; animation-delay: var(--delay); }
+        .tw-crit { animation: tw-crit-pulse 2s ease-in-out infinite; }
+        .tw-reco-ring { animation: tw-pulse 1.6s ease-in-out infinite; }
+        .tw-route { animation: tw-dash 0.8s linear infinite; }
+        .tw-you { animation: tw-pop 0.4s cubic-bezier(0.2,0.7,0.2,1); }
+
+        .tw-bar { flex-shrink: 0; padding: clamp(10px,1.4vw,16px) clamp(14px,2.6vw,34px) max(14px, env(safe-area-inset-bottom)); }
+        .tw-hint { text-align: center; font-size: 14px; opacity: 0.6; }
+        .tw-reco { display: flex; align-items: center; gap: clamp(10px,1.6vw,22px); background: #fff; border: 1px solid var(--parcel-edge, #C9DDB6); border-radius: var(--radius, 18px); padding: 12px clamp(14px,2vw,22px); max-width: 760px; margin: 0 auto; box-shadow: var(--shadow, 0 6px 0 rgba(27,58,33,.12)); }
+        .tw-reco-from, .tw-reco-to { display: flex; flex-direction: column; gap: 1px; }
+        .tw-reco-label { font-size: 9.5px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.5; }
+        .tw-reco-wc { font-size: clamp(16px,1.8vw,22px); font-weight: 800; letter-spacing: -0.02em; }
+        .tw-reco-arrow { font-size: 20px; opacity: 0.4; }
+        .tw-reco-metrics { display: flex; gap: clamp(10px,1.4vw,18px); margin-left: auto; font-size: clamp(13px,1.4vw,16px); font-variant-numeric: tabular-nums; }
+        .tw-reco-metrics strong { font-weight: 800; }
+        .tw-reco-clear { background: transparent; border: none; font-size: 16px; cursor: pointer; color: var(--ink, #1B3A21); opacity: 0.4; flex-shrink: 0; }
+        .tw-reco-clear:hover { opacity: 1; }
+
+        @keyframes tw-pop { from { opacity: 0; transform: translateY(8px) scale(0.85); } to { opacity: 1; transform: scale(1); } }
+        @keyframes tw-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+        @keyframes tw-crit-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+        @keyframes tw-dash { to { stroke-dashoffset: -18; } }
+
+        @media (max-width: 560px) {
+          .tw-reco { flex-wrap: wrap; gap: 10px; }
+          .tw-reco-metrics { width: 100%; margin-left: 0; justify-content: space-between; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .tw-node, .tw-you { animation: none; }
+          .tw-crit, .tw-reco-ring, .tw-route, .tw-conn-dot { animation: none; }
+        }
+      `}</style>
     </div>
   );
 }
