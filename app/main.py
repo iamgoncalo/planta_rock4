@@ -37,6 +37,7 @@ from app.routers.telemetry import router as telemetry_router
 from app.routers.cleaning_calendar import router as cleaning_calendar_router
 from app.routers.forecast import router as forecast_router
 from app.routers.ingest import router as ingest_router
+from app.routers.fleet import router as fleet_router
 
 logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
@@ -141,6 +142,7 @@ def create_app() -> FastAPI:
     app.include_router(scor_router)
     app.include_router(devices_router)
     app.include_router(ingest_router)
+    app.include_router(fleet_router)
     app.include_router(cleaning_router)
     app.include_router(staff_router)
     app.include_router(incidents_router)
