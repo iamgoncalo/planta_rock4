@@ -105,7 +105,12 @@ function recommendCluster(
       const fila = live?.params?.fila_atual ?? 0;
       const waitSec = (live?.params?.tempo_espera_min ?? 0) * 60;
       const congestionPenalty = occ >= 80 ? 90 : occ >= 60 ? 25 : 0;
-      const totalCost = walkSeconds + waitSec + congestionPenalty;
+      // Dentro do venue: caminho mais leve = andar + esperar + congestao.
+      // Fora do venue: walk desde a posicao do user seria km (absurdo),
+      //   por isso ranqueamos so pela qualidade do cluster agora.
+      const totalCost = isOutside
+        ? waitSec + congestionPenalty + occ
+        : walkSeconds + waitSec + congestionPenalty;
       return { cid, distMeters, walkSeconds, occ, fila, waitSec, totalCost };
     })
     .sort((a, b) => a.totalCost - b.totalCost);
@@ -135,20 +140,28 @@ function formatRecommendation(
   const cidUpper = best.cid.toUpperCase();
   const zone = CLUSTERS[best.cid]?.zone ?? '';
   const occLabel = `${Math.round(best.occ)}% ocupação`;
-  const filaLabel = best.fila > 0 ? ` · ${best.fila} pessoas na fila` : '';
+  const filaLabel = best.fila > 0 ? ` · ${best.fila} na fila` : ' · sem fila';
+  const waitLabel = best.waitSec > 30 ? ` · ~${Math.round(best.waitSec / 60)} min espera` : '';
 
-  let txt = '';
+  // ── FORA do venue: sem walk time (seria km). Recomenda por qualidade. ──
   if (isOutside) {
-    txt += `Estás a ${fmtDist(venueDist)} do Parque Tejo. Quando chegares ao festival, vai a:\n\n`;
+    let txt = `Estás a ${fmtDist(venueDist)} do Parque Tejo. Quando chegares ao festival, a melhor opção agora é:\n\n`;
+    txt += `**${cidUpper}** · ${zone}\n`;
+    txt += `${occLabel}${filaLabel}${waitLabel}`;
+    if (alt && alt.cid !== best.cid) {
+      const altWait = alt.waitSec > 30 ? `, ~${Math.round(alt.waitSec / 60)} min espera` : '';
+      txt += `\n\nAlternativa: **${alt.cid.toUpperCase()}** — ${Math.round(alt.occ)}% ocupação${altWait}.`;
+    }
+    txt += `\n\nAtualizo isto em tempo real à medida que as filas mudam.`;
+    return txt;
   }
-  txt += `**${cidUpper}** · ${zone}\n`;
-  txt += `${fmtDist(best.distMeters)} · ~${fmtWalkMin(best.walkSeconds)} a pé\n`;
-  txt += `${occLabel}${filaLabel}`;
-  if (best.waitSec > 30) txt += ` · ~${Math.round(best.waitSec / 60)} min espera`;
 
+  // ── DENTRO do venue: walk time real ──
+  let txt = `**${cidUpper}** · ${zone}\n`;
+  txt += `${fmtDist(best.distMeters)} · ~${fmtWalkMin(best.walkSeconds)} a pé\n`;
+  txt += `${occLabel}${filaLabel}${waitLabel}`;
   if (alt && alt.cid !== best.cid) {
-    const altUpper = alt.cid.toUpperCase();
-    txt += `\n\nAlternativa: **${altUpper}** — ${fmtWalkMin(alt.walkSeconds)} a pé, ${Math.round(alt.occ)}% ocupação.`;
+    txt += `\n\nAlternativa: **${alt.cid.toUpperCase()}** — ${fmtWalkMin(alt.walkSeconds)} a pé, ${Math.round(alt.occ)}% ocupação.`;
   }
   return txt;
 }
