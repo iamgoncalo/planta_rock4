@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.routers.health import router as health_router
 from app.routers.sections import router as sections_router
 from app.routers.clusters import router as clusters_router
+from app.routers.clusters_geo import router as clusters_geo_router
 from app.routers.state import router as state_router
 from app.routers.kpis import router as kpis_router
 from app.routers.shows import router as shows_router
@@ -126,6 +127,7 @@ def create_app() -> FastAPI:
 
     # All new routers are prefixed under /api
     app.include_router(clusters_router)
+    app.include_router(clusters_geo_router)
     app.include_router(state_router)
     app.include_router(kpis_router)
     app.include_router(shows_router)
