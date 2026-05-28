@@ -23,7 +23,6 @@ const NAV: NavItem[] = [
   { href: '/v2/cleaning',   label: 'Limpeza',    hint: 'G L' },
   { href: '/v2/incidents',  label: 'Incidentes', hint: 'G I' },
   { href: '/v2/scor',       label: 'SCOR',       hint: 'G C' },
-  { href: '/v2/pipelines',  label: 'Pipelines',  hint: 'G P' },
 ];
 
 function readRecents(): string[] {
