@@ -209,15 +209,16 @@ export default function TopBar() {
           className="topbar-right-desktop"
           style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}
         >
-          <span className="pill pill-sim" title="Simulado · sensores 11–12 Jun">SIMULADO</span>
           <span
             className="mono"
             style={{
               fontSize: 11.5,
-              color: 'var(--faint)',
+              color: 'var(--amber, #C25A1A)',
+              fontWeight: 600,
               minWidth: 64,
               textAlign: 'right',
               fontVariantNumeric: 'tabular-nums',
+              letterSpacing: '0.02em',
             }}
           >
             {time}
@@ -501,7 +502,7 @@ export default function TopBar() {
           <span style={{ letterSpacing: '0.04em' }}>
             ESC fecha · {time}
           </span>
-          <span className="pill pill-sim" style={{ fontSize: 9 }}>SIM</span>
+          
         </div>
       </aside>
 

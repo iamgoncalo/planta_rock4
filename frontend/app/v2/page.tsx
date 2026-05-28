@@ -242,15 +242,6 @@ export default function HomePage() {
           lineHeight: 1.4,
         }}>
           Someone has to take care of your needs.
-          <span style={{
-            fontFamily: 'var(--font-mono)',
-            fontStyle: 'normal',
-            fontSize: '0.78em',
-            letterSpacing: '0.12em',
-            marginLeft: 10,
-            color: 'var(--faint)',
-            textTransform: 'uppercase',
-          }}>— Planta</span>
         </div>
         <div style={{ display: 'flex', gap: 18, fontSize: 12 }}>
           <Link href="/v2/twin" style={{ color: 'var(--muted)' }}>Digital twin →</Link>

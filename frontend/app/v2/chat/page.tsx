@@ -44,6 +44,22 @@ function ChatInner() {
 
   useEffect(() => {
     setMessages(loadHistory());
+    // v20: aceitar imagem anexada via sessionStorage
+    try {
+      const raw = sessionStorage.getItem('planta-pending-image');
+      if (raw) {
+        const data = JSON.parse(raw);
+        sessionStorage.removeItem('planta-pending-image');
+        if (data && data.dataUrl) {
+          const imgMsg = {
+            role: 'user' as const,
+            content: data.dataUrl,
+            ts: Date.now(),
+          };
+          setMessages((prev) => [...prev, imgMsg]);
+        }
+      }
+    } catch {}
   }, []);
 
   useEffect(() => {
@@ -223,7 +239,11 @@ function ChatInner() {
               boxShadow: m.role === 'assistant' ? 'var(--shadow-sm)' : 'none',
             }}
           >
-            {m.content}
+            {isImageDataUrl(m.content) ? (
+              <ImageBubble src={m.content} />
+            ) : (
+              m.content
+            )}
           </div>
         ))}
         {sending && (
@@ -254,6 +274,11 @@ function ChatInner() {
 }
 
 // Outer component — Suspense wrapper exigido pelo Next.js 14 quando se usa useSearchParams
+
+function isImageDataUrl(s: string): boolean {
+  return typeof s === 'string' && s.startsWith('data:image/');
+}
+
 export default function ChatPage() {
   return (
     <Suspense
@@ -265,5 +290,37 @@ export default function ChatPage() {
     >
       <ChatInner />
     </Suspense>
+  );
+}
+
+function ImageBubble({ src }: { src: string }) {
+  const filename = `planta-${Date.now()}.png`;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <img
+        src={src}
+        alt="imagem anexada"
+        style={{
+          maxWidth: '100%',
+          maxHeight: 360,
+          borderRadius: 12,
+          display: 'block',
+        }}
+      />
+      <a
+        href={src}
+        download={filename}
+        style={{
+          fontSize: 11,
+          color: 'rgba(255,255,255,0.85)',
+          textDecoration: 'underline',
+          textAlign: 'right',
+          fontFamily: 'var(--font-mono)',
+          letterSpacing: '0.04em',
+        }}
+      >
+        ⬇ guardar
+      </a>
+    </div>
   );
 }
