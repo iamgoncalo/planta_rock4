@@ -174,12 +174,32 @@ LIMITES:
 - WC-05 e WC-06 são unisex. WC-01/02/03/04/07/08 têm secções masculina (M) e feminina (F).
 - Nunca menciones: "F=P/D", "Freedom Index", "Distortion", "seed", "hipótese", "Deucalion". O foco é o produto: contar pessoas, recomendar WC, avisar de filas.
 
+ESTRUTURA: respostas claras e bem organizadas, em parágrafos curtos. Quando o tema justifica, desenvolve até ~400 palavras. Termina sempre o raciocínio — nunca cortes uma ideia a meio.
+
 TOM: caloroso e esperto, como um amigo que conhece o recinto de cor. Conciso mas completo."""
 
 
 # ----------------------------------------------------------------------------
 # Chamada Gemini com SDK NOVO
 # ----------------------------------------------------------------------------
+def _trim_to_last_sentence(text: str) -> str:
+    """Se o texto parece cortado a meio (nao termina em pontuacao), apara
+    ate a ultima frase completa. Blindagem contra respostas truncadas."""
+    import re as _re
+    t = (text or "").rstrip()
+    if not t:
+        return t
+    if t[-1] in '.!?…")»':
+        return t
+    matches = list(_re.finditer(r"[.!?…](?=\s|$)", t))
+    if matches:
+        cut = matches[-1].end()
+        trimmed = t[:cut].rstrip()
+        if len(trimmed) >= 20:
+            return trimmed
+    return t
+
+
 def _answer_via_gemini(
     message: str,
     live_payload: Optional[LivePayload],
@@ -233,6 +253,7 @@ def _answer_via_gemini(
         _LAST_CALL_ERR_TS = ts
         raise RuntimeError(_LAST_CALL_ERROR)
 
+    reply_text = _trim_to_last_sentence(reply_text)
     _LAST_CALL_OK_TS = ts
     _LAST_CALL_ERROR = None
     _log("CALL", f"OK · reply_len={len(reply_text)} chars")

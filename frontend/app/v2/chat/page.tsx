@@ -73,8 +73,9 @@ function haversine(a: { lat: number; lng: number }, b: { lat: number; lng: numbe
 
 interface Ranking {
   cid: string;
-  distMeters: number;
-  walkSeconds: number;
+  distMeters: number;       // distância real user → cluster (só útil se dentro)
+  walkSeconds: number;      // tempo a pé real (só útil se dentro)
+  intraVenueDist: number;   // distância cluster → centroid (centralidade)
   occ: number;
   fila: number;
   waitSec: number;
@@ -88,30 +89,40 @@ function recommendCluster(
 ): { best: Ranking; alt: Ranking | null; isOutside: boolean; venueDist: number } | null {
   const user = { lat: userLat, lng: userLng };
   const venueDist = haversine(user, VENUE_CENTROID);
-  const isOutside = venueDist > 800; // > 800m do centroid = fora do venue
+  const isOutside = venueDist > 800; // > 800m do centroid = fora do recinto
 
   const sourceClusters = Object.keys(CLUSTERS);
   const liveMap = new Map(
     (snapshot?.clusters ?? []).map((c) => [c.cluster_id, c]),
   );
 
+  // Se estás FORA do venue, o tempo a pé é DENTRO do recinto (da entrada/centro
+  // ao WC), não desde a tua posição a centenas de km. Se estás DENTRO, é real.
+  const refPoint = isOutside ? VENUE_CENTROID : user;
+
   const ranked: Ranking[] = sourceClusters
     .map((cid) => {
       const pos = clusterPos(cid);
-      const distMeters = haversine(user, pos);
-      const walkSeconds = distMeters / 1.4; // ~1.4 m/s normal walking
+      const distMeters = haversine(refPoint, pos);
+      const walkSeconds = distMeters / 1.4; // ~1.4 m/s
+      const intraVenueDist = haversine(pos, VENUE_CENTROID);
       const live = liveMap.get(cid);
       const occ = live?.params?.ocupacao_instantanea ?? 0;
       const fila = live?.params?.fila_atual ?? 0;
       const waitSec = (live?.params?.tempo_espera_min ?? 0) * 60;
       const congestionPenalty = occ >= 80 ? 90 : occ >= 60 ? 25 : 0;
-      // Dentro do venue: caminho mais leve = andar + esperar + congestao.
-      // Fora do venue: walk desde a posicao do user seria km (absurdo),
-      //   por isso ranqueamos so pela qualidade do cluster agora.
+
+      // REGRA CRÍTICA:
+      // - DENTRO do recinto: a distância até ti conta (walk_time + queue + congestion).
+      // - FORA: a distância de 200+ km é irrelevante. Rankeamos só pelo estado ao
+      //   vivo (ocupação, fila, espera) + uma pequena preferência por clusters
+      //   centrais (fáceis de encontrar). NUNCA por walkSeconds — senão escolhe-se
+      //   o cluster marginalmente mais perto da tua cidade, o que é absurdo.
       const totalCost = isOutside
-        ? waitSec + congestionPenalty + occ
+        ? waitSec + congestionPenalty + occ * 2 + (intraVenueDist / 1.4) * 0.3
         : walkSeconds + waitSec + congestionPenalty;
-      return { cid, distMeters, walkSeconds, occ, fila, waitSec, totalCost };
+
+      return { cid, distMeters, walkSeconds, intraVenueDist, occ, fila, waitSec, totalCost };
     })
     .sort((a, b) => a.totalCost - b.totalCost);
 
@@ -127,6 +138,10 @@ function fmtDist(m: number): string {
 
 function fmtWalkMin(seconds: number): string {
   const m = Math.max(1, Math.round(seconds / 60));
+  if (m > 90) {
+    // Salvaguarda: distância absurda → piada, nunca um número ridículo
+    return `${m} min 😅 — os nossos WC são inteligentes, mas não tão aventureiros!`;
+  }
   return `${m} min`;
 }
 
@@ -143,20 +158,19 @@ function formatRecommendation(
   const filaLabel = best.fila > 0 ? ` · ${best.fila} na fila` : ' · sem fila';
   const waitLabel = best.waitSec > 30 ? ` · ~${Math.round(best.waitSec / 60)} min espera` : '';
 
-  // ── FORA do venue: sem walk time (seria km). Recomenda por qualidade. ──
   if (isOutside) {
-    let txt = `Estás a ${fmtDist(venueDist)} do Parque Tejo. Quando chegares ao festival, a melhor opção agora é:\n\n`;
+    // FORA do recinto: nada de tempo a pé absurdo. Mostra estado + zona.
+    let txt = `Estás a ${fmtDist(venueDist)} do Parque Tejo. Quando chegares, a opção mais desafogada agora é:\n\n`;
     txt += `**${cidUpper}** · ${zone}\n`;
     txt += `${occLabel}${filaLabel}${waitLabel}`;
     if (alt && alt.cid !== best.cid) {
-      const altWait = alt.waitSec > 30 ? `, ~${Math.round(alt.waitSec / 60)} min espera` : '';
-      txt += `\n\nAlternativa: **${alt.cid.toUpperCase()}** — ${Math.round(alt.occ)}% ocupação${altWait}.`;
+      txt += `\n\nEm segundo: **${alt.cid.toUpperCase()}** — ${Math.round(alt.occ)}% ocupação.`;
     }
-    txt += `\n\nAtualizo isto em tempo real à medida que as filas mudam.`;
+    txt += `\n\nQuando entrares no recinto, partilha a localização outra vez e dou-te o caminho a pé exacto.`;
     return txt;
   }
 
-  // ── DENTRO do venue: walk time real ──
+  // DENTRO: caminho real
   let txt = `**${cidUpper}** · ${zone}\n`;
   txt += `${fmtDist(best.distMeters)} · ~${fmtWalkMin(best.walkSeconds)} a pé\n`;
   txt += `${occLabel}${filaLabel}${waitLabel}`;
@@ -413,15 +427,29 @@ function ChatInner() {
   };
 
   return (
-    <div className="page" style={{ maxWidth: 820, paddingBottom: 32 }}>
+    <div
+      style={{
+        position: 'fixed',
+        top: 'var(--topbar-h, 72px)',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'var(--bg, #FBFAF7)',
+      }}
+    >
+      {/* Header fixo */}
       <div
         style={{
+          flexShrink: 0,
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'flex-end',
-          marginBottom: 24,
+          alignItems: 'center',
+          gap: 12,
+          padding: '14px clamp(16px, 4vw, 40px)',
           borderBottom: '1px solid var(--border)',
-          paddingBottom: 18,
+          background: 'var(--bg, #FBFAF7)',
         }}
       >
         <div>
@@ -429,11 +457,11 @@ function ChatInner() {
           <h2
             style={{
               fontFamily: 'var(--font-display)',
-              fontSize: 'clamp(28px, 4vw, 44px)',
+              fontSize: 'clamp(20px, 3vw, 28px)',
               fontWeight: 500,
               letterSpacing: '-0.03em',
               lineHeight: 1,
-              marginTop: 6,
+              marginTop: 3,
             }}
           >
             Ask Planta anything
@@ -450,80 +478,80 @@ function ChatInner() {
               fontSize: 12,
               color: 'var(--muted)',
               cursor: 'pointer',
+              flexShrink: 0,
+              fontFamily: 'inherit',
             }}
           >
-            Limpar histórico
+            Limpar
           </button>
         )}
       </div>
 
-      {messages.length === 0 && (
-        <div style={{ padding: '40px 0 20px', color: 'var(--muted)' }}>
-          <p style={{ fontSize: 17, lineHeight: 1.55, maxWidth: 560, marginBottom: 18 }}>
-            Sou o assistente da Planta. Pergunta-me qualquer coisa sobre os
-            clusters, ocupação, ou simplesmente partilha a tua localização
-            para a recomendação mais rápida.
-          </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-            <button
-              onClick={askLocation}
-              style={{
-                background: 'var(--green-dark, #1B3A21)',
-                color: 'white',
-                border: 'none',
-                borderRadius: 999,
-                padding: '8px 16px',
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-              }}
-            >
-              📍 Onde está o WC mais perto?
-            </button>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-            {[
-              'Qual o cluster mais cheio agora?',
-              'Quem está a limpar o WC-04?',
-              'Quando é a próxima limpeza?',
-              'Quantas pessoas há agora no festival?',
-            ].map((s) => (
-              <button
-                key={s}
-                onClick={() => send(s)}
-                style={{
-                  background: 'var(--bg-soft)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 999,
-                  padding: '7px 13px',
-                  fontSize: 12.5,
-                  cursor: 'pointer',
-                  color: 'var(--ink)',
-                  fontFamily: 'inherit',
-                }}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
+      {/* Área de mensagens — scroll INTERNO (tipo WhatsApp) */}
       <div
         ref={scrollRef}
         style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          padding: 'clamp(16px, 3vw, 28px) clamp(16px, 4vw, 40px)',
           display: 'flex',
           flexDirection: 'column',
           gap: 12,
-          marginBottom: 24,
-          maxHeight: 'calc(100vh - 360px)',
-          overflowY: 'auto',
         }}
       >
+        {messages.length === 0 && (
+          <div style={{ color: 'var(--muted)', maxWidth: 560 }}>
+            <p style={{ fontSize: 16, lineHeight: 1.55, marginBottom: 18 }}>
+              Sou o assistente da Planta. Pergunta-me sobre os clusters,
+              ocupação, filas — ou partilha a tua localização para a
+              recomendação mais rápida.
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+              <button
+                onClick={askLocation}
+                style={{
+                  background: 'var(--green-dark, #1B3A21)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 999,
+                  padding: '8px 16px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                📍 Onde está o WC mais perto?
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {[
+                'Qual o cluster mais cheio agora?',
+                'Quantas pessoas há agora no festival?',
+                'Quando é a próxima limpeza?',
+              ].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => send(s)}
+                  style={{
+                    background: 'white',
+                    border: '1px solid var(--border)',
+                    borderRadius: 999,
+                    padding: '7px 13px',
+                    fontSize: 12.5,
+                    cursor: 'pointer',
+                    color: 'var(--ink)',
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {messages.map((m, i) => (
           <div
             key={i}
@@ -531,7 +559,7 @@ function ChatInner() {
               alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
               background: m.role === 'user' ? 'var(--ink)' : 'white',
               color: m.role === 'user' ? 'white' : 'var(--ink)',
-              padding: '12px 16px',
+              padding: '11px 15px',
               borderRadius: 16,
               maxWidth: '85%',
               fontSize: 15,
@@ -549,7 +577,7 @@ function ChatInner() {
             style={{
               alignSelf: 'flex-start',
               background: 'white',
-              padding: '12px 16px',
+              padding: '11px 15px',
               borderRadius: 16,
               border: '1px solid var(--border)',
               fontSize: 13,
@@ -559,6 +587,95 @@ function ChatInner() {
             <span style={{ animation: 'dots 1.4s infinite' }}>● ● ●</span>
           </div>
         )}
+      </div>
+
+      {/* Input próprio fixo no fundo (tipo WhatsApp) */}
+      <div
+        style={{
+          flexShrink: 0,
+          padding: 'clamp(10px, 2vw, 16px) clamp(16px, 4vw, 40px)',
+          borderTop: '1px solid var(--border)',
+          background: 'var(--bg, #FBFAF7)',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            maxWidth: 820,
+            margin: '0 auto',
+            background: 'white',
+            border: '1px solid var(--green-dark, #1B3A21)',
+            borderRadius: 999,
+            padding: '6px 6px 6px 8px',
+          }}
+        >
+          <button
+            type="button"
+            onClick={askLocation}
+            title="Partilhar localização"
+            aria-label="Localização"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              width: 38,
+              height: 38,
+              borderRadius: '50%',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              color: 'var(--ink)',
+              fontSize: 18,
+            }}
+          >
+            📍
+          </button>
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') send(); }}
+            placeholder="Pergunta à Planta…"
+            style={{
+              flex: 1,
+              background: 'transparent',
+              border: 'none',
+              outline: 'none',
+              padding: '10px 6px',
+              fontSize: 15.5,
+              color: 'var(--ink)',
+              minWidth: 0,
+              fontFamily: 'inherit',
+            }}
+          />
+          <button
+            onClick={() => send()}
+            disabled={!input.trim() || sending}
+            aria-label="Enviar"
+            style={{
+              background: input.trim() && !sending ? 'var(--green-dark, #1B3A21)' : '#EBE9E2',
+              color: input.trim() && !sending ? 'white' : '#A0A39A',
+              border: 'none',
+              borderRadius: '50%',
+              width: 40,
+              height: 40,
+              cursor: input.trim() && !sending ? 'pointer' : 'default',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              transition: 'background 0.15s',
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="19" x2="12" y2="5" />
+              <polyline points="5 12 12 5 19 12" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <style jsx>{`

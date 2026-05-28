@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 const ATTACH_KEY = 'planta-pending-image';
@@ -8,6 +8,7 @@ const MAX_IMAGE_BYTES = 2_000_000; // 2 MB
 
 export default function PlantaSearchBar() {
   const router = useRouter();
+  const pathname = usePathname();
   const [input, setInput] = useState('');
   const [focused, setFocused] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -137,6 +138,9 @@ export default function PlantaSearchBar() {
     try { sessionStorage.removeItem(ATTACH_KEY); } catch {}
     setPendingFile(null);
   };
+
+  // No /v2/chat o input proprio do chat substitui esta barra
+  if (pathname && pathname.startsWith('/v2/chat')) return null;
 
   return (
     <div
