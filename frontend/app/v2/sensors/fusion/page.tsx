@@ -28,7 +28,7 @@ const CMDS: [string,string][] = [
 ];
 
 function tipoLabel(t:string){return ({lilygo:'LilyGo',camera:'Câmara',ir:'Infravermelho',gateway_lora:'Gateway LoRa',ap_wifi:'Ponto WiFi'} as any)[t]||t;}
-function statusColor(s:string){return s==='online'?'#4A7C59':s==='degraded'?'#C25A1A':s==='offline'?'#8A938B':'#C9CEC4';}
+function statusColor(s:string){return s==='online'?'#4A7C59':s==='degraded'?'#C25A1A':s==='offline'?'#8A938B':s==='planned'?'#C9CEC4':'#C9CEC4';}
 function statusLabel(s:string){return ({online:'Online',degraded:'Instável',offline:'Offline',maintenance:'Manutenção',planned:'Planeado','sem-dados':'Sem dados'} as any)[s]||s;}
 function srcLabel(s:string){return ({camera:'Câmara',ir:'Infraverm.',wifi:'WiFi'} as any)[s]||s;}
 
@@ -191,19 +191,29 @@ export default function SensorConsole(){
               {loading && fleet.length===0 && Array.from({length:12}).map((_,i)=>(
                 <div key={'sk'+i} className="sx-card sx-skel"/>
               ))}
-              {filtered.map(s=>(
-                <button key={s.id} className={`sx-card ${selSensor?.id===s.id?'sel':''}`} onClick={()=>setSelSensor(s)}>
+              {filtered.map(s=>{
+                const isPlanned=s.status==='planned';
+                return (
+                <button key={s.id} className={`sx-card ${selSensor?.id===s.id?'sel':''} st-${s.status||'unknown'}`} onClick={()=>setSelSensor(s)}>
                   <div className="sx-card-top">
                     <span className="sx-dot" style={{background:statusColor(s.status)}}/>
                     <span className="sx-card-tipo">{tipoLabel(s.tipo)}</span>
+                    {s.cluster&&<span className="sx-card-cluster">{s.cluster.replace('wc-','').toUpperCase()}</span>}
                   </div>
                   <div className="sx-card-id">{s.id}</div>
                   <div className="sx-card-bot">
-                    {s.modelo&&s.real?<span className="sx-card-mod">{s.modelo}</span>:<span className="sx-card-st">{statusLabel(s.status)}</span>}
-                    {s.battery&&<span className="sx-card-bat">{s.battery.pct}%</span>}
+                    <span className="sx-card-st">{statusLabel(s.status)}</span>
+                    {s.battery&&(
+                      <span className="sx-card-bat" title={`bateria ${s.battery.pct}%`}>
+                        <span className="sx-batbar"><span className="sx-batfill" style={{width:`${s.battery.pct}%`}}/></span>
+                        {s.battery.pct}%
+                      </span>
+                    )}
+                    {s.modelo&&!s.battery&&<span className="sx-card-mod">{s.modelo}</span>}
                   </div>
                 </button>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
@@ -376,17 +386,25 @@ export default function SensorConsole(){
         .sx-filters select{border:1px solid #E5E8E0;border-radius:8px;padding:7px 12px;font-family:inherit;font-size:13px;background:#fff;color:#0D1A0F;}
         .sx-count{font-size:12px;color:#8A938B;}
         .sx-grid{flex:1;min-height:0;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;align-content:start;}
-        .sx-card{background:#fff;border:1px solid #E5E8E0;border-radius:12px;padding:12px;cursor:pointer;text-align:left;font-family:inherit;transition:all .14s;}
-        .sx-card:hover{border-color:#4A7C59;transform:translateY(-1px);}
-        .sx-card.sel{border-color:#1B3A21;border-width:2px;}
-        .sx-card-top{display:flex;align-items:center;gap:6px;margin-bottom:6px;}
-        .sx-dot{width:8px;height:8px;border-radius:50%;}
-        .sx-card-tipo{font-size:11px;color:#8A938B;text-transform:uppercase;letter-spacing:.03em;}
-        .sx-card-id{font-family:monospace;font-size:13px;font-weight:600;}
-        .sx-card-bot{display:flex;justify-content:space-between;align-items:center;margin-top:8px;}
-        .sx-card-mod{font-size:10px;background:#E8F1EA;color:#1B3A21;border-radius:5px;padding:2px 7px;font-weight:600;}
-        .sx-card-st{font-size:11px;color:#8A938B;}
-        .sx-card-bat{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:#4A7C59;}
+        .sx-card{background:#fff;border:1px solid #E5E8E0;border-radius:12px;padding:11px 12px;cursor:pointer;text-align:left;font-family:inherit;transition:all .14s;display:flex;flex-direction:column;gap:6px;min-height:88px;}
+        .sx-card:hover{border-color:#4A7C59;transform:translateY(-1px);box-shadow:0 4px 12px rgba(27,58,33,.08);}
+        .sx-card.sel{border-color:#1B3A21;border-width:2px;padding:10px 11px;}
+        .sx-card.st-online{background:linear-gradient(180deg,#FAFCF9 0%,#FFFFFF 100%);}
+        .sx-card.st-planned{opacity:.78;}
+        .sx-card-top{display:flex;align-items:center;gap:6px;}
+        .sx-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;box-shadow:0 0 0 2px rgba(74,124,89,.12);}
+        .sx-card.st-online .sx-dot{box-shadow:0 0 0 2px rgba(74,124,89,.18),0 0 6px rgba(74,124,89,.35);}
+        .sx-card-tipo{font-size:10px;color:#8A938B;text-transform:uppercase;letter-spacing:.04em;font-weight:600;}
+        .sx-card-cluster{margin-left:auto;font-size:10px;font-weight:700;color:#1B3A21;background:#E8F1EA;border-radius:4px;padding:1px 6px;font-family:monospace;}
+        .sx-card-id{font-family:monospace;font-size:12.5px;font-weight:600;line-height:1.2;color:#0D1A0F;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .sx-card-bot{display:flex;justify-content:space-between;align-items:center;margin-top:auto;gap:6px;min-width:0;}
+        .sx-card-st{font-size:10.5px;color:#8A938B;flex-shrink:0;}
+        .sx-card.st-online .sx-card-st{color:#4A7C59;font-weight:600;}
+        .sx-card.st-degraded .sx-card-st{color:#C25A1A;font-weight:600;}
+        .sx-card-mod{font-size:10px;background:#E8F1EA;color:#1B3A21;border-radius:5px;padding:2px 7px;font-weight:600;flex-shrink:0;}
+        .sx-card-bat{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;color:#4A7C59;flex-shrink:0;}
+        .sx-batbar{width:32px;height:5px;background:#F0F2EC;border-radius:3px;overflow:hidden;}
+        .sx-batfill{display:block;height:100%;background:linear-gradient(90deg,#4A7C59,#6FAF82);border-radius:3px;}
 
         .sx-rede{display:flex;flex-direction:column;gap:16px;min-height:0;overflow-y:auto;}
         .sx-flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
