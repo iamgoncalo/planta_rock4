@@ -356,8 +356,15 @@ function Chat2Inner() {
     const q = params?.get('q');
     if (q && handledQuery.current !== q) {
       handledQuery.current = q;
-      send(q, true);
-      router.replace('/v2/chat2', { scroll: false });
+      // Limpa o ?q= do URL SEM disparar re-render (history.replaceState, nao router.replace).
+      // O router.replace interrompia o send() assincrono -> resposta nunca chegava (mobile).
+      try {
+        if (typeof window !== 'undefined') {
+          window.history.replaceState(null, '', '/v2/chat2');
+        }
+      } catch {}
+      // Pequeno atraso para garantir que o estado inicial assentou antes de enviar.
+      setTimeout(() => { send(q, true); }, 60);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params]);
