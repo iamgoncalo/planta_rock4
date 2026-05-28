@@ -648,9 +648,9 @@ function Chat2Inner() {
         .c2-qchip { white-space: nowrap; background: #fff; border: 1px solid rgba(13,26,15,0.12); border-radius: 999px; padding: 7px 13px; font-size: 12.5px; cursor: pointer; color: var(--ink, #0D1A0F); font-family: inherit; flex-shrink: 0; transition: border-color 0.14s; }
         .c2-qchip:hover { border-color: var(--green-mid, #4A7C59); }
 
-        .c2-barwrap { flex-shrink: 0; padding: 10px clamp(16px,4vw,40px) 18px; }
-        .c2-bar { display: flex; align-items: center; gap: 2px; max-width: 720px; margin: 0 auto; background: #fff; border: 1px solid var(--green-dark, #1B3A21); border-radius: 999px; padding: 8px 8px 8px 10px; transition: all 0.18s; }
-        .c2-disclaimer { text-align: center; margin-top: 10px; font-size: 11px; color: var(--muted, rgba(13,26,15,0.55)); font-family: var(--font-mono, monospace); letter-spacing: 0.04em; }
+        .c2-barwrap { flex-shrink: 0; padding: 18px clamp(16px,4vw,40px) max(8px, env(safe-area-inset-bottom)); }
+        .c2-bar { display: flex; align-items: center; gap: 2px; max-width: 720px; margin: 0 auto; background: #fff; border: 1px solid var(--green-dark, #1B3A21); border-radius: 999px; padding: 9px 9px 9px 12px; transition: all 0.18s; }
+        .c2-disclaimer { text-align: center; margin-top: 9px; font-size: 11px; color: var(--muted, rgba(13,26,15,0.55)); font-family: var(--font-mono, monospace); letter-spacing: 0.04em; }
 
         @media (max-width: 860px) {
           .c2-root { grid-template-columns: 1fr; }
