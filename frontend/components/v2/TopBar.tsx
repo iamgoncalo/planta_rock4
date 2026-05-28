@@ -78,7 +78,7 @@ export default function TopBar() {
             height={28}
             style={{ display: 'block' }}
           />
-          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.05 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.05 }}>
             <span
               className="serif"
               style={{
@@ -86,20 +86,10 @@ export default function TopBar() {
                 fontWeight: 600,
                 color: 'var(--ink)',
                 letterSpacing: '-0.01em',
+                whiteSpace: 'nowrap',
               }}
             >
-              planta
-            </span>
-            <span
-              style={{
-                fontSize: 9,
-                color: 'var(--green-dark)',
-                letterSpacing: '0.14em',
-                fontWeight: 500,
-                textTransform: 'lowercase',
-              }}
-            >
-              smart homes
+              Planta Smart Homes
             </span>
           </div>
         </Link>
