@@ -445,6 +445,21 @@ export const api = {
   health: () => getJson<{ status: string }>('/api/v1/health'),
   ingestStatus: () => getJson<any>('/api/v1/ingest/status'),
 
+  // ── Frota de sensores + fusao (v49 backend) ──
+  fleet: () => getJson<any>('/api/v1/fleet'),
+  fleetSummary: () => getJson<any>('/api/v1/fleet/summary'),
+  fusion: (cluster: string) => getJson<any>(`/api/v1/fusion/${cluster}`),
+
+  // ── Comandos de device (via MQTT, por cluster) ──
+  devicePing: (cluster: string) =>
+    getJson<any>(`/api/v1/devices/${cluster}/ping`, { method: 'POST' }),
+  deviceRestart: (cluster: string) =>
+    getJson<any>(`/api/v1/devices/${cluster}/restart`, { method: 'POST' }),
+  deviceDiagnostics: (cluster: string) =>
+    getJson<any>(`/api/v1/devices/${cluster}/diagnostics`, { method: 'POST' }),
+  deviceReset: (cluster: string) =>
+    getJson<any>(`/api/v1/devices/${cluster}/reset-counters`, { method: 'POST' }),
+
   /** Schema correcto do backend: { message: string } */
   chat: (message: string) =>
     getJson<ChatResponse>('/api/v1/chat', {

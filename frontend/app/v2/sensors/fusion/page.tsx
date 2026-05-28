@@ -1,333 +1,398 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useLive } from '@/components/v2/LiveContext';
 import { api } from '@/lib/v2-api';
 
 /* ──────────────────────────────────────────────────────────────────
-   /v2/sensors/fusion — Arquitectura completa de fusao de sensores
-   Do sensor ao fluxo: IR + LilyGo (WiFi) + ML/OAK -> WiFi 6E / LoRaWAN
-   -> Backhaul 4G -> Railway -> Fusao. Diagrama + estado ao vivo (10s).
-   Estilo Planta (Inter, paleta verde, ambar #C25A1A, sem vermelho).
+   /v2/sensors/fusion — CONSOLA DE SENSORES (NOC)
+   Sem scroll de pagina. Tabs: Visao · Sensores · Rede · Fusao · Manutencao.
+   Liga ao backend real: /fleet, /fleet/summary, /fusion/{c}, /devices/*.
+   Estilo Planta (Inter, verde, ambar #C25A1A, sem vermelho).
    ────────────────────────────────────────────────────────────────── */
 
 const REFRESH_MS = 10000;
+const CLUSTERS = ['wc-01','wc-02','wc-03','wc-04','wc-05','wc-06','wc-07','wc-08'];
 
-// Capacidades + tipo (fonte: clusters_capacity no backend)
-const CLUSTERS: Array<{
-  id: string; nome: string; cap: number; unisex: boolean;
-  ir: number; lilygo: number; e_m: number; n_m: number;
-}> = [
-  { id: 'wc-01', nome: 'WC-01', cap: 135, unisex: false, ir: 8, lilygo: 1, e_m: 105, n_m: 327 },
-  { id: 'wc-02', nome: 'WC-02', cap: 126, unisex: false, ir: 8, lilygo: 1, e_m: 147, n_m: 286 },
-  { id: 'wc-03', nome: 'WC-03', cap: 102, unisex: false, ir: 8, lilygo: 1, e_m: 158, n_m: 195 },
-  { id: 'wc-04', nome: 'WC-04', cap: 150, unisex: false, ir: 8, lilygo: 2, e_m: 188, n_m: 289 },
-  { id: 'wc-05', nome: 'WC-05', cap: 133, unisex: true,  ir: 0, lilygo: 2, e_m: 158, n_m: 240 },
-  { id: 'wc-06', nome: 'WC-06', cap: 208, unisex: true,  ir: 0, lilygo: 3, e_m: 0,   n_m: 84  },
-  { id: 'wc-07', nome: 'WC-07', cap: 138, unisex: false, ir: 8, lilygo: 1, e_m: 130, n_m: 154 },
-  { id: 'wc-08', nome: 'WC-08', cap: 145, unisex: false, ir: 8, lilygo: 2, e_m: 0,   n_m: 0   },
+const TABS = [
+  { id: 'visao', label: 'Visão geral' },
+  { id: 'sensores', label: 'Sensores' },
+  { id: 'rede', label: 'Rede' },
+  { id: 'fusao', label: 'Fusão' },
+  { id: 'manut', label: 'Manutenção' },
 ];
 
-// Camadas de rede (infra partilhada)
-const NETWORK = {
-  wifi: { modelo: 'TP-Link EAP670 WiFi 6E', aps: 8, raioDenso: 45, raioLivre: 80 },
-  lora: { modelo: 'Dragino DLOS8 868MHz', gateways: 2, alcance_m: 3000 },
-  backhaul: { primario: 'NOS 4G', secundario: 'Vodafone 4G', failover_s: 5 },
+type Sensor = {
+  id: string; tipo: string; cluster: string | null; status: string;
+  modelo?: string; real?: boolean; porta?: string; role?: string;
+  power?: string; link?: string; fonte_fusao?: string;
+  battery?: { pct: number; fonte: string; autonomia_h?: number };
 };
 
-// Pesos de fusao
-const FUSION = [
-  { fonte: 'IR (entrada/saída por porta)', peso: 0.50, nota: 'Mais fiável quando direccional' },
-  { fonte: 'LilyGo · WiFi sniffing', peso: 0.30, nota: 'Telemóveis → pessoas (factor por cluster)' },
-  { fonte: 'ML · Luxonis OAK', peso: 0.20, nota: 'Contagem por visão · distingue H/M' },
-];
-
-type IngestStatus = {
-  data_ttl_s: number;
-  clusters: Record<string, { data_source: string; age_s: number | null; ts_device: number | null }>;
-};
-
-function sourceLabel(s: string): { txt: string; cor: string } {
-  if (s === 'real') return { txt: 'A receber', cor: 'var(--green-soft, #4A7C59)' };
-  if (s === 'stale') return { txt: 'Sem sinal', cor: 'var(--amber, #C25A1A)' };
-  return { txt: 'Simulado', cor: 'var(--color-muted, #8A938B)' };
+function statusColor(s: string): string {
+  if (s === 'online') return 'var(--green-soft, #4A7C59)';
+  if (s === 'degraded') return 'var(--amber, #C25A1A)';
+  if (s === 'offline') return '#8A938B';
+  if (s === 'maintenance') return '#6FAF82';
+  return '#C9CEC4'; // planned
+}
+function statusLabel(s: string): string {
+  return ({ online:'Online', degraded:'Instável', offline:'Offline',
+            maintenance:'Manutenção', planned:'Planeado', unknown:'—' } as any)[s] || s;
+}
+function tipoLabel(t: string): string {
+  return ({ lilygo:'LilyGo', camera:'Câmara', ir:'Infravermelho',
+            gateway_lora:'Gateway LoRa', ap_wifi:'Ponto WiFi' } as any)[t] || t;
 }
 
-export default function FusionPage() {
-  const { snapshot } = useLive();
-  const [ingest, setIngest] = useState<IngestStatus | null>(null);
+export default function SensorConsole() {
+  const [tab, setTab] = useState('visao');
+  const [fleet, setFleet] = useState<Sensor[]>([]);
+  const [summary, setSummary] = useState<any>(null);
+  const [fusion, setFusion] = useState<Record<string, any>>({});
+  const [selCluster, setSelCluster] = useState('wc-06');
+  const [filterTipo, setFilterTipo] = useState('todos');
+  const [cmdLog, setCmdLog] = useState<string[]>([]);
 
   useEffect(() => {
-    let cancelled = false;
+    let cancel = false;
     const tick = async () => {
       try {
-        const s = await api.ingestStatus();
-        if (!cancelled) setIngest(s);
-      } catch { /* mantém último */ }
+        const [f, s] = await Promise.all([api.fleet(), api.fleetSummary()]);
+        if (cancel) return;
+        setFleet(f.sensors || []);
+        setSummary(s);
+      } catch { /* mantém */ }
     };
     tick();
     const iv = setInterval(tick, REFRESH_MS);
-    return () => { cancelled = true; clearInterval(iv); };
+    return () => { cancel = true; clearInterval(iv); };
   }, []);
 
-  const totals = useMemo(() => {
-    const ir = CLUSTERS.reduce((a, c) => a + c.ir, 0);
-    const lilygo = CLUSTERS.reduce((a, c) => a + c.lilygo, 0);
-    return { ir, lilygo, aps: NETWORK.wifi.aps, gateways: NETWORK.lora.gateways };
-  }, []);
+  // Fusao do cluster selecionado (tab fusao)
+  useEffect(() => {
+    if (tab !== 'fusao') return;
+    let cancel = false;
+    const tick = async () => {
+      try {
+        const r = await api.fusion(selCluster);
+        if (!cancel) setFusion((prev) => ({ ...prev, [selCluster]: r }));
+      } catch { /* */ }
+    };
+    tick();
+    const iv = setInterval(tick, REFRESH_MS);
+    return () => { cancel = true; clearInterval(iv); };
+  }, [tab, selCluster]);
 
-  // mapa a escala (coordenadas em metros, origem wc-08)
-  const VB = 1000;
-  const PAD = 80;
-  const maxE = Math.max(...CLUSTERS.map((c) => c.e_m));
-  const maxN = Math.max(...CLUSTERS.map((c) => c.n_m));
-  const sx = (e: number) => PAD + (e / Math.max(1, maxE)) * (VB - 2 * PAD);
-  const sy = (n: number) => VB - PAD - (n / Math.max(1, maxN)) * (VB - 2 * PAD);
+  const stats = useMemo(() => {
+    const online = fleet.filter((s) => s.status === 'online').length;
+    const total = fleet.length;
+    const bats = fleet.filter((s) => s.battery).map((s) => s.battery!.pct);
+    const batAvg = bats.length ? Math.round(bats.reduce((a,b)=>a+b,0)/bats.length) : null;
+    return { online, total, batAvg };
+  }, [fleet]);
+
+  const filtered = useMemo(() => {
+    if (filterTipo === 'todos') return fleet;
+    return fleet.filter((s) => s.tipo === filterTipo);
+  }, [fleet, filterTipo]);
+
+  const runCmd = async (cluster: string, cmd: string, fn: () => Promise<any>) => {
+    setCmdLog((l) => [`${new Date().toLocaleTimeString()} · ${cluster} · ${cmd} enviado…`, ...l].slice(0, 12));
+    try {
+      const r = await fn();
+      setCmdLog((l) => [`${new Date().toLocaleTimeString()} · ${cluster} · ${cmd} → ${r?.sent ? 'OK' : 'enviado'}`, ...l].slice(0, 12));
+    } catch {
+      setCmdLog((l) => [`${new Date().toLocaleTimeString()} · ${cluster} · ${cmd} → device offline`, ...l].slice(0, 12));
+    }
+  };
 
   return (
-    <div className="fx-root">
-      <header className="fx-head">
-        <div className="fx-eyebrow">PlantaOS · Arquitectura de fluxos</div>
-        <h1 className="fx-title">Fusão de sensores</h1>
-        <p className="fx-lead">
-          Do sensor ao fluxo. Cada cluster cruza três fontes — infravermelhos por porta,
-          deteção WiFi do LilyGo e visão por máquina — e a rede leva tudo ao backend.
-          Estado ao vivo, actualizado a cada 10&nbsp;segundos.
-        </p>
-        <div className="fx-kpis">
-          <div className="fx-kpi"><b>{totals.ir}</b><span>sensores IR</span></div>
-          <div className="fx-kpi"><b>{totals.lilygo}</b><span>hubs LilyGo</span></div>
-          <div className="fx-kpi"><b>{totals.aps}</b><span>pontos WiFi 6E</span></div>
-          <div className="fx-kpi"><b>{totals.gateways}</b><span>gateways LoRa</span></div>
-        </div>
-      </header>
+    <div className="sc-root">
+      <div className="sc-head">
+        <div className="sc-eyebrow">PlantaOS · Consola de sensores</div>
+        <h1 className="sc-title">Frota & Fusão</h1>
+      </div>
 
-      {/* CAMADA 1 — Sensores no terreno */}
-      <section className="fx-sec">
-        <div className="fx-sec-label">Camada 1 · Sensores no terreno</div>
-        <h2 className="fx-h2">O que mede cada cluster</h2>
-        <div className="fx-grid">
-          {CLUSTERS.map((c) => {
-            const st = ingest?.clusters?.[c.id]?.data_source ?? 'none';
-            const sl = sourceLabel(st);
-            const age = ingest?.clusters?.[c.id]?.age_s;
-            return (
-              <article key={c.id} className="fx-card">
-                <div className="fx-card-top">
-                  <span className="fx-card-id">{c.nome}</span>
-                  <span className="fx-dot" style={{ background: sl.cor }} title={sl.txt} />
-                </div>
-                <div className="fx-card-meta">
-                  {c.unisex ? 'Unissexo' : 'Masc + Fem'} · cap. {c.cap}
-                </div>
-                <ul className="fx-card-list">
-                  <li><span>Infravermelhos</span><b>{c.ir > 0 ? `${c.ir} (4/porta)` : '—'}</b></li>
-                  <li><span>Hub LilyGo</span><b>{c.lilygo}</b></li>
-                  <li><span>Visão ML</span><b className="fx-soft">planeado</b></li>
-                </ul>
-                <div className="fx-card-foot" style={{ color: sl.cor }}>
-                  {sl.txt}{age != null ? ` · há ${Math.round(age)}s` : ''}
-                </div>
-              </article>
-            );
-          })}
-        </div>
-        <p className="fx-note">
-          Os clusters unissexo (WC-05 e WC-06) não têm infravermelhos por porta —
-          a contagem vem do LilyGo e, quando disponível, da visão por máquina, sem separação por género.
-        </p>
-      </section>
+      <div className="sc-tabs">
+        {TABS.map((t) => (
+          <button key={t.id} className={`sc-tab ${t.id===tab?'is-on':''}`} onClick={()=>setTab(t.id)}>{t.label}</button>
+        ))}
+      </div>
 
-      {/* CAMADA 2 — LilyGo */}
-      <section className="fx-sec">
-        <div className="fx-sec-label">Camada 2 · Hub LilyGo</div>
-        <h2 className="fx-h2">O cérebro de cada cluster</h2>
-        <p className="fx-body">
-          Cada hub LilyGo (ESP32) faz duas coisas: lê os sensores de infravermelhos para contar
-          entradas e saídas por porta, e escuta passivamente o ambiente WiFi para estimar quantas
-          pessoas estão por perto. Nunca guarda identificadores — apenas conta. O factor de conversão
-          telemóveis→pessoas é calibrado por cluster.
-        </p>
-        <div className="fx-rows">
-          <div className="fx-row"><span>Interior denso (WC-05, WC-06)</span><b>factor 1.8</b></div>
-          <div className="fx-row"><span>Exterior semi-aberto (restantes)</span><b>factor 2.5</b></div>
-          <div className="fx-row"><span>Envio</span><b>cada 60s · WiFi primário</b></div>
-        </div>
-      </section>
-
-      {/* CAMADA 3 — WiFi 6E */}
-      <section className="fx-sec">
-        <div className="fx-sec-label">Camada 3 · Rede WiFi 6E</div>
-        <h2 className="fx-h2">Alcance e cobertura</h2>
-        <p className="fx-body">
-          A nuvem de clusters estende-se por cerca de 327&nbsp;m (Norte-Sul) e 298&nbsp;m (Este-Oeste).
-          Em multidão densa, cada ponto WiFi cobre um raio de ~{NETWORK.wifi.raioDenso}&nbsp;m;
-          em espaço livre, até ~{NETWORK.wifi.raioLivre}&nbsp;m. Por isso usamos {NETWORK.wifi.aps} pontos
-          para garantir todos os clusters com redundância.
-        </p>
-        <div className="fx-rows">
-          <div className="fx-row"><span>Equipamento</span><b>{NETWORK.wifi.modelo}</b></div>
-          <div className="fx-row"><span>Grupo central (WC-01 a 05, 07)</span><b>todos a &lt;180m · mesh</b></div>
-          <div className="fx-row fx-row-warn"><span>WC-06 e WC-08 · isolados</span><b>ponto dedicado cada um</b></div>
-        </div>
-      </section>
-
-      {/* CAMADA 4 — LoRaWAN */}
-      <section className="fx-sec">
-        <div className="fx-sec-label">Camada 4 · LoRaWAN 868MHz</div>
-        <h2 className="fx-h2">A espinha dorsal de longo alcance</h2>
-        <p className="fx-body">
-          Onde o WiFi não chega, entra o LoRaWAN — alcance até {(NETWORK.lora.alcance_m / 1000).toFixed(0)}&nbsp;km.
-          É o caminho de segurança para os pontos mais afastados, em especial o WC-08, que fica a mais de
-          400&nbsp;m do centro e nunca seria coberto por mesh WiFi. Se um hub perde o WiFi, cai
-          automaticamente para LoRaWAN.
-        </p>
-        <div className="fx-rows">
-          <div className="fx-row"><span>Equipamento</span><b>{NETWORK.lora.modelo}</b></div>
-          <div className="fx-row"><span>Gateways</span><b>{NETWORK.lora.gateways}</b></div>
-          <div className="fx-row"><span>Função</span><b>fallback automático</b></div>
-        </div>
-      </section>
-
-      {/* CAMADA 5 — Backhaul */}
-      <section className="fx-sec">
-        <div className="fx-sec-label">Camada 5 · Backhaul 4G</div>
-        <h2 className="fx-h2">Ligação à nuvem</h2>
-        <p className="fx-body">
-          Do recinto para o backend, dois operadores em paralelo. Se um falha, o outro assume
-          em poucos segundos — sem interromper o fluxo de dados.
-        </p>
-        <div className="fx-rows">
-          <div className="fx-row"><span>Primário</span><b>{NETWORK.backhaul.primario}</b></div>
-          <div className="fx-row"><span>Secundário</span><b>{NETWORK.backhaul.secundario}</b></div>
-          <div className="fx-row"><span>Comutação</span><b>~{NETWORK.backhaul.failover_s}s</b></div>
-        </div>
-      </section>
-
-      {/* CAMADA 6 — Fusao */}
-      <section className="fx-sec">
-        <div className="fx-sec-label">Camada 6 · Fusão</div>
-        <h2 className="fx-h2">Como as fontes se cruzam</h2>
-        <p className="fx-body">
-          No backend, as três fontes combinam-se com pesos. Se uma fonte falha, o peso
-          redistribui-se pelas restantes — nunca há divisão por zero, e a confiança baixa
-          de forma transparente. Quanto mais as fontes concordam, maior a confiança.
-        </p>
-        <div className="fx-fusion">
-          {FUSION.map((f) => (
-            <div key={f.fonte} className="fx-fusion-row">
-              <div className="fx-fusion-bar-wrap">
-                <div className="fx-fusion-bar" style={{ width: `${f.peso * 100}%` }} />
-              </div>
-              <div className="fx-fusion-txt">
-                <b>{Math.round(f.peso * 100)}%</b> {f.fonte}
-                <span className="fx-fusion-note">{f.nota}</span>
-              </div>
+      <div className="sc-body">
+        {/* TAB VISAO */}
+        {tab === 'visao' && (
+          <div className="sc-overview">
+            <div className="sc-kpi-grid">
+              <div className="sc-kpi"><b>{stats.total || (summary?.total ?? 0)}</b><span>sensores na frota</span></div>
+              <div className="sc-kpi"><b style={{color:'var(--green-soft,#4A7C59)'}}>{stats.online}</b><span>online agora</span></div>
+              <div className="sc-kpi"><b>{stats.batAvg != null ? stats.batAvg+'%' : '—'}</b><span>bateria média (est.)</span></div>
+              <div className="sc-kpi"><b>{summary?.by_type?.camera ?? 0}</b><span>câmaras</span></div>
             </div>
-          ))}
-        </div>
-      </section>
+            {summary && (
+              <div className="sc-type-row">
+                {Object.entries(summary.by_type).map(([t, n]: any) => (
+                  <div key={t} className="sc-type-chip"><b>{n}</b> {tipoLabel(t)}</div>
+                ))}
+              </div>
+            )}
+            <p className="sc-note">
+              A frota cobre os 8 clusters. LilyGo em todos (coração, powerbank). Câmaras reais
+              (OAK 4 D no WC-06, OAK-D Lite no WC-04) e planeadas nos restantes. IR ao mínimo,
+              só nos clusters com portas separadas. Tudo configurável.
+            </p>
+          </div>
+        )}
 
-      {/* MAPA DE COBERTURA */}
-      <section className="fx-sec">
-        <div className="fx-sec-label">Mapa · Cobertura à escala</div>
-        <h2 className="fx-h2">Os 8 clusters e o seu alcance</h2>
-        <div className="fx-map">
-          <svg viewBox={`0 0 ${VB} ${VB}`} width="100%" preserveAspectRatio="xMidYMid meet">
-            {/* raios WiFi denso */}
-            {CLUSTERS.map((c) => (
-              <circle key={`r-${c.id}`} cx={sx(c.e_m)} cy={sy(c.n_m)}
-                r={(NETWORK.wifi.raioDenso / Math.max(1, maxE)) * (VB - 2 * PAD)}
-                fill="var(--green-soft, #4A7C59)" opacity={0.07} />
-            ))}
-            {/* clusters */}
-            {CLUSTERS.map((c) => {
-              const st = ingest?.clusters?.[c.id]?.data_source ?? 'none';
-              const sl = sourceLabel(st);
-              return (
-                <g key={c.id}>
-                  <circle cx={sx(c.e_m)} cy={sy(c.n_m)} r={14}
-                    fill={sl.cor} opacity={0.9} />
-                  <text x={sx(c.e_m)} y={sy(c.n_m) - 22} textAnchor="middle"
-                    fontSize={20} fill="var(--color-ink, #0D1A0F)" fontWeight={600}>
-                    {c.nome}
-                  </text>
-                </g>
+        {/* TAB SENSORES */}
+        {tab === 'sensores' && (
+          <div className="sc-sensores">
+            <div className="sc-filters">
+              {['todos','lilygo','camera','ir','gateway_lora','ap_wifi'].map((t)=>(
+                <button key={t} className={`sc-fchip ${filterTipo===t?'is-on':''}`} onClick={()=>setFilterTipo(t)}>
+                  {t==='todos'?'Todos':tipoLabel(t)}
+                </button>
+              ))}
+            </div>
+            <div className="sc-table-wrap">
+              <table className="sc-table">
+                <thead><tr>
+                  <th>Sensor</th><th>Tipo</th><th>Cluster</th><th>Estado</th>
+                  <th>Bateria</th><th>Ligação</th>
+                </tr></thead>
+                <tbody>
+                  {filtered.map((s)=>(
+                    <tr key={s.id}>
+                      <td className="sc-mono">{s.id}{s.modelo && s.real ? <span className="sc-badge">{s.modelo}</span> : ''}</td>
+                      <td>{tipoLabel(s.tipo)}</td>
+                      <td className="sc-mono">{s.cluster || '—'}</td>
+                      <td><span className="sc-dot" style={{background:statusColor(s.status)}} /> {statusLabel(s.status)}</td>
+                      <td>
+                        {s.battery ? (
+                          <div className="sc-bat">
+                            <div className="sc-bat-bar"><div className="sc-bat-fill" style={{width:`${s.battery.pct}%`, background: s.battery.pct<20?'var(--amber,#C25A1A)':'var(--green-soft,#4A7C59)'}} /></div>
+                            <span>{s.battery.pct}%{s.battery.fonte==='estimada'?' est.':''}</span>
+                          </div>
+                        ) : <span className="sc-soft">—</span>}
+                      </td>
+                      <td className="sc-soft">{s.link || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB REDE */}
+        {tab === 'rede' && (
+          <div className="sc-rede">
+            <div className="sc-net-flow">
+              <div className="sc-net-node">IR · elétrico</div>
+              <span className="sc-arr">→</span>
+              <div className="sc-net-node">LilyGo · powerbank</div>
+              <span className="sc-arr">→</span>
+              <div className="sc-net-col">
+                <div className="sc-net-node sc-net-ok">WiFi 6E + mesh ESP-NOW<br/><small>grupo central</small></div>
+                <div className="sc-net-node sc-net-warn">LoRa + SIM 4G<br/><small>WC-06, WC-08 isolados</small></div>
+              </div>
+              <span className="sc-arr">→</span>
+              <div className="sc-net-node">Backhaul 4G<br/><small>NOS + Vodafone</small></div>
+              <span className="sc-arr">→</span>
+              <div className="sc-net-node sc-net-ok">Railway · Fusão</div>
+            </div>
+            <div className="sc-net-grid">
+              {CLUSTERS.map((c)=>{
+                const sensores = fleet.filter((s)=>s.cluster===c);
+                const online = sensores.filter((s)=>s.status==='online').length;
+                const isolated = c==='wc-06'||c==='wc-08';
+                return (
+                  <div key={c} className="sc-net-card">
+                    <div className="sc-net-card-id">{c.toUpperCase()}</div>
+                    <div className="sc-net-card-meta">{sensores.length} sensores · {online} online</div>
+                    <div className="sc-net-card-link">{isolated?'LoRa + SIM 4G':'WiFi + mesh'}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* TAB FUSAO */}
+        {tab === 'fusao' && (
+          <div className="sc-fusao">
+            <div className="sc-filters">
+              {CLUSTERS.map((c)=>(
+                <button key={c} className={`sc-fchip ${selCluster===c?'is-on':''}`} onClick={()=>setSelCluster(c)}>
+                  {c.toUpperCase()}
+                </button>
+              ))}
+            </div>
+            {(() => {
+              const f = fusion[selCluster];
+              if (!f) return <p className="sc-note">A carregar fusão de {selCluster.toUpperCase()}…</p>;
+              if (f.estado === 'sem-dados') return (
+                <div className="sc-fusao-empty">
+                  <p className="sc-note">Sem dados de sensores para {selCluster.toUpperCase()} neste momento.</p>
+                  <p className="sc-soft">Fontes disponíveis: {(f.fontes_disponiveis||[]).join(', ')} · capacidade {f.capacidade_dentro}</p>
+                </div>
               );
-            })}
-          </svg>
-        </div>
-        <p className="fx-note">
-          O verde indica clusters a receber dados reais; o âmbar, sensores em silêncio;
-          o cinza, ainda em modo simulado. WC-06 e WC-08 (em baixo) ficam afastados do grupo central.
-        </p>
-      </section>
+              return (
+                <div className="sc-fusao-grid">
+                  <div className="sc-fusao-result">
+                    <div className="sc-fr-big">{f.pessoas}<span> pessoas</span></div>
+                    <div className="sc-fr-row"><span>Ocupação</span><b>{f.ocupacao_pct}%</b></div>
+                    <div className="sc-fr-row"><span>Fila</span><b>{f.fila_atual}</b></div>
+                    <div className="sc-fr-row"><span>Espera</span><b>{f.tempo_espera_min} min</b></div>
+                    <div className="sc-fr-row"><span>Confiança</span><b>{Math.round((f.confianca||0)*100)}%</b></div>
+                  </div>
+                  <div className="sc-fusao-sources">
+                    <div className="sc-fs-title">Fontes & pesos (ao vivo)</div>
+                    {Object.entries(f.pesos||{}).map(([src, w]: any)=>(
+                      <div key={src} className="sc-fs-row">
+                        <div className="sc-fs-label">{tipoLabel(src==='camera'?'camera':src==='ir'?'ir':'lilygo')}</div>
+                        <div className="sc-fs-bar-wrap"><div className="sc-fs-bar" style={{width:`${w*100}%`}} /></div>
+                        <div className="sc-fs-val"><b>{Math.round(w*100)}%</b> · est. {f.estimativas_por_fonte?.[src] ?? '—'}</div>
+                      </div>
+                    ))}
+                    <p className="sc-soft" style={{marginTop:12}}>
+                      Os pesos redistribuem-se quando uma fonte falha. A confiança sobe quando as
+                      fontes concordam. O fator dispositivos→pessoas calibra-se pelo ground-truth.
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* TAB MANUTENCAO */}
+        {tab === 'manut' && (
+          <div className="sc-manut">
+            <div className="sc-manut-grid">
+              {CLUSTERS.map((c)=>{
+                const cu = c.toUpperCase();
+                return (
+                  <div key={c} className="sc-manut-card">
+                    <div className="sc-manut-id">{cu}</div>
+                    <div className="sc-manut-btns">
+                      <button onClick={()=>runCmd(cu,'ping',()=>api.devicePing(cu))}>Ping</button>
+                      <button onClick={()=>runCmd(cu,'diagnóstico',()=>api.deviceDiagnostics(cu))}>Diagnóstico</button>
+                      <button onClick={()=>runCmd(cu,'reiniciar',()=>api.deviceRestart(cu))}>Reiniciar</button>
+                      <button onClick={()=>runCmd(cu,'reset',()=>api.deviceReset(cu))}>Reset</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="sc-log">
+              <div className="sc-log-title">Registo de comandos</div>
+              {cmdLog.length===0 ? <div className="sc-soft">Sem ações ainda.</div> :
+                cmdLog.map((l,i)=><div key={i} className="sc-log-line">{l}</div>)}
+            </div>
+          </div>
+        )}
+      </div>
 
       <style jsx>{`
-        .fx-root { max-width: 1100px; margin: 0 auto; padding: 32px 20px 120px; }
-        .fx-head { margin-bottom: 40px; }
-        .fx-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
-          text-transform: uppercase; color: var(--color-muted, #8A938B); margin-bottom: 8px; }
-        .fx-title { font-size: clamp(30px, 5vw, 48px); font-weight: 600;
-          color: var(--color-ink, #0D1A0F); line-height: 1.05; margin: 0 0 12px; }
-        .fx-lead { font-size: 15px; line-height: 1.6; color: var(--color-ink, #0D1A0F);
-          max-width: 620px; opacity: 0.8; }
-        .fx-kpis { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 24px; }
-        .fx-kpi { display: flex; flex-direction: column; }
-        .fx-kpi b { font-size: 28px; font-weight: 600; color: var(--green-dark, #1B3A21);
-          font-variant-numeric: tabular-nums; line-height: 1; }
-        .fx-kpi span { font-size: 12px; color: var(--color-muted, #8A938B); margin-top: 4px; }
+        .sc-root { height: calc(100vh - 72px); display: flex; flex-direction: column;
+          overflow: hidden; color: var(--color-ink, #0D1A0F); padding: 0; }
+        .sc-head { padding: 20px clamp(16px,2.6vw,32px) 4px; flex-shrink: 0; }
+        .sc-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+          text-transform: uppercase; color: var(--color-muted,#8A938B); }
+        .sc-title { font-size: clamp(22px,3vw,34px); font-weight: 600; margin: 2px 0 0; }
+        .sc-tabs { flex-shrink: 0; display: flex; gap: 6px; overflow-x: auto;
+          padding: 10px clamp(16px,2.6vw,32px); scrollbar-width: none; }
+        .sc-tabs::-webkit-scrollbar { display: none; }
+        .sc-tab { white-space: nowrap; background: #fff; border: 1px solid #E5E8E0;
+          border-radius: 999px; padding: 8px 16px; font-size: 13px; font-weight: 500;
+          cursor: pointer; color: #0D1A0F; font-family: inherit; transition: all .14s; }
+        .sc-tab:hover { border-color: #4A7C59; }
+        .sc-tab.is-on { background: #1B3A21; border-color: #1B3A21; color: #fff; font-weight: 600; }
+        .sc-body { flex: 1; min-height: 0; overflow: hidden; padding: 8px clamp(16px,2.6vw,32px) 20px;
+          display: flex; flex-direction: column; }
 
-        .fx-sec { margin: 56px 0; }
-        .fx-sec-label { font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
-          text-transform: uppercase; color: var(--green-soft, #4A7C59); margin-bottom: 8px; }
-        .fx-h2 { font-size: clamp(22px, 3vw, 30px); font-weight: 600;
-          color: var(--color-ink, #0D1A0F); margin: 0 0 16px; }
-        .fx-body { font-size: 15px; line-height: 1.65; color: var(--color-ink, #0D1A0F);
-          opacity: 0.82; max-width: 640px; margin: 0 0 20px; }
-        .fx-note { font-size: 13px; line-height: 1.55; color: var(--color-muted, #8A938B);
-          margin-top: 16px; max-width: 640px; }
+        .sc-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: 14px; }
+        .sc-kpi { background: #fff; border: 1px solid #E5E8E0; border-radius: 14px; padding: 16px; }
+        .sc-kpi b { display: block; font-size: 34px; font-weight: 600; font-variant-numeric: tabular-nums;
+          color: var(--green-dark,#1B3A21); line-height: 1; }
+        .sc-kpi span { font-size: 12px; color: var(--color-muted,#8A938B); margin-top: 6px; display:block; }
+        .sc-type-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+        .sc-type-chip { background: #fff; border: 1px solid #E5E8E0; border-radius: 8px;
+          padding: 6px 12px; font-size: 13px; }
+        .sc-type-chip b { color: var(--green-dark,#1B3A21); font-variant-numeric: tabular-nums; }
+        .sc-note { font-size: 13px; line-height: 1.55; color: var(--color-ink,#0D1A0F);
+          opacity: 0.75; max-width: 680px; margin-top: 16px; }
+        .sc-soft { color: var(--color-muted,#8A938B); }
 
-        .fx-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
-        .fx-card { background: white; border: 1px solid var(--color-border, #E5E8E0);
-          border-radius: 14px; padding: 16px; }
-        .fx-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-        .fx-card-id { font-size: 17px; font-weight: 700; color: var(--color-ink, #0D1A0F); }
-        .fx-dot { width: 10px; height: 10px; border-radius: 50%; }
-        .fx-card-meta { font-size: 12px; color: var(--color-muted, #8A938B); margin-bottom: 12px; }
-        .fx-card-list { list-style: none; margin: 0; padding: 0; }
-        .fx-card-list li { display: flex; justify-content: space-between; font-size: 13px;
-          padding: 5px 0; border-bottom: 1px solid var(--color-paper, #FAFAF7); }
-        .fx-card-list li:last-child { border-bottom: none; }
-        .fx-card-list span { color: var(--color-muted, #8A938B); }
-        .fx-card-list b { color: var(--color-ink, #0D1A0F); font-variant-numeric: tabular-nums; }
-        .fx-soft { color: var(--color-muted, #8A938B) !important; font-weight: 500; }
-        .fx-card-foot { font-size: 12px; font-weight: 600; margin-top: 12px; }
+        .sc-filters { display: flex; gap: 6px; flex-wrap: wrap; flex-shrink: 0; margin-bottom: 10px; }
+        .sc-fchip { background: #fff; border: 1px solid #E5E8E0; border-radius: 999px;
+          padding: 5px 12px; font-size: 12px; cursor: pointer; color: #0D1A0F; font-family: inherit; }
+        .sc-fchip.is-on { background: #1B3A21; border-color: #1B3A21; color: #fff; }
+        .sc-table-wrap { flex: 1; min-height: 0; overflow-y: auto; border: 1px solid #E5E8E0; border-radius: 12px; background: #fff; }
+        .sc-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .sc-table thead th { position: sticky; top: 0; background: #FAFAF7; text-align: left;
+          padding: 10px 12px; font-weight: 600; color: var(--color-muted,#8A938B);
+          border-bottom: 1px solid #E5E8E0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+        .sc-table td { padding: 9px 12px; border-bottom: 1px solid #F0F2EC; }
+        .sc-mono { font-family: var(--font-dm-mono, monospace); font-size: 12px; }
+        .sc-badge { display: inline-block; margin-left: 8px; background: #E8F1EA; color: #1B3A21;
+          border-radius: 6px; padding: 1px 7px; font-size: 10px; font-weight: 600; }
+        .sc-dot { display:inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+        .sc-bat { display: flex; align-items: center; gap: 8px; }
+        .sc-bat-bar { width: 50px; height: 6px; background: #F0F2EC; border-radius: 3px; overflow: hidden; }
+        .sc-bat-fill { height: 100%; border-radius: 3px; }
 
-        .fx-rows { display: flex; flex-direction: column; gap: 1px;
-          background: var(--color-border, #E5E8E0); border-radius: 12px; overflow: hidden;
-          border: 1px solid var(--color-border, #E5E8E0); max-width: 560px; }
-        .fx-row { display: flex; justify-content: space-between; align-items: center;
-          background: white; padding: 12px 16px; font-size: 14px; }
-        .fx-row span { color: var(--color-muted, #8A938B); }
-        .fx-row b { color: var(--color-ink, #0D1A0F); font-weight: 600; }
-        .fx-row-warn b { color: var(--amber, #C25A1A); }
+        .sc-net-flow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+        .sc-net-node { background: #fff; border: 1px solid #E5E8E0; border-radius: 10px;
+          padding: 10px 14px; font-size: 13px; font-weight: 500; text-align: center; }
+        .sc-net-node small { color: var(--color-muted,#8A938B); font-weight: 400; }
+        .sc-net-ok { border-color: #4A7C59; }
+        .sc-net-warn { border-color: var(--amber,#C25A1A); }
+        .sc-net-col { display: flex; flex-direction: column; gap: 6px; }
+        .sc-arr { color: var(--color-muted,#8A938B); font-size: 18px; }
+        .sc-net-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 10px;
+          overflow-y: auto; }
+        .sc-net-card { background: #fff; border: 1px solid #E5E8E0; border-radius: 12px; padding: 12px; }
+        .sc-net-card-id { font-weight: 700; font-size: 15px; }
+        .sc-net-card-meta { font-size: 12px; color: var(--color-muted,#8A938B); margin: 4px 0; }
+        .sc-net-card-link { font-size: 12px; color: var(--green-dark,#1B3A21); font-weight: 500; }
 
-        .fx-fusion { display: flex; flex-direction: column; gap: 16px; max-width: 600px; }
-        .fx-fusion-row { display: flex; align-items: center; gap: 16px; }
-        .fx-fusion-bar-wrap { width: 120px; height: 8px; background: var(--color-paper, #FAFAF7);
-          border-radius: 4px; overflow: hidden; flex-shrink: 0; }
-        .fx-fusion-bar { height: 100%; background: var(--green-soft, #4A7C59); border-radius: 4px; }
-        .fx-fusion-txt { font-size: 14px; color: var(--color-ink, #0D1A0F); }
-        .fx-fusion-txt b { color: var(--green-dark, #1B3A21); font-variant-numeric: tabular-nums; }
-        .fx-fusion-note { display: block; font-size: 12px; color: var(--color-muted, #8A938B); margin-top: 2px; }
+        .sc-fusao-grid { display: grid; grid-template-columns: 1fr 1.6fr; gap: 16px; }
+        .sc-fusao-result { background: #fff; border: 1px solid #E5E8E0; border-radius: 14px; padding: 18px; }
+        .sc-fr-big { font-size: 44px; font-weight: 600; font-variant-numeric: tabular-nums;
+          color: var(--green-dark,#1B3A21); line-height: 1; }
+        .sc-fr-big span { font-size: 15px; color: var(--color-muted,#8A938B); font-weight: 400; }
+        .sc-fr-row { display: flex; justify-content: space-between; padding: 8px 0;
+          border-bottom: 1px solid #F0F2EC; font-size: 14px; margin-top: 4px; }
+        .sc-fr-row span { color: var(--color-muted,#8A938B); }
+        .sc-fr-row b { font-variant-numeric: tabular-nums; }
+        .sc-fusao-sources { background: #fff; border: 1px solid #E5E8E0; border-radius: 14px; padding: 18px; }
+        .sc-fs-title { font-size: 12px; font-weight: 700; text-transform: uppercase;
+          letter-spacing: 0.05em; color: var(--color-muted,#8A938B); margin-bottom: 14px; }
+        .sc-fs-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+        .sc-fs-label { width: 110px; font-size: 13px; }
+        .sc-fs-bar-wrap { flex: 1; height: 8px; background: #F0F2EC; border-radius: 4px; overflow: hidden; }
+        .sc-fs-bar { height: 100%; background: var(--green-soft,#4A7C59); border-radius: 4px; }
+        .sc-fs-val { width: 130px; font-size: 12px; text-align: right; font-variant-numeric: tabular-nums; }
+        .sc-fs-val b { color: var(--green-dark,#1B3A21); }
 
-        .fx-map { background: white; border: 1px solid var(--color-border, #E5E8E0);
-          border-radius: 16px; padding: 16px; }
+        .sc-manut { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+        .sc-manut-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 12px;
+          overflow-y: auto; }
+        .sc-manut-card { background: #fff; border: 1px solid #E5E8E0; border-radius: 12px; padding: 14px; }
+        .sc-manut-id { font-weight: 700; margin-bottom: 10px; }
+        .sc-manut-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        .sc-manut-btns button { background: #FAFAF7; border: 1px solid #E5E8E0; border-radius: 8px;
+          padding: 7px; font-size: 12px; cursor: pointer; color: #0D1A0F; font-family: inherit; }
+        .sc-manut-btns button:hover { border-color: #4A7C59; background: #fff; }
+        .sc-log { background: #0D1A0F; border-radius: 12px; padding: 14px; max-height: 200px; overflow-y: auto; }
+        .sc-log-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+          color: #6FAF82; margin-bottom: 8px; }
+        .sc-log-line { font-family: var(--font-dm-mono, monospace); font-size: 12px; color: #BFE0E8; padding: 2px 0; }
 
-        @media (max-width: 640px) {
-          .fx-kpis { gap: 16px; }
-          .fx-kpi b { font-size: 22px; }
+        @media (max-width: 720px) {
+          .sc-fusao-grid { grid-template-columns: 1fr; }
         }
       `}</style>
     </div>
