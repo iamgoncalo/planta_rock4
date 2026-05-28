@@ -450,6 +450,14 @@ export const api = {
   fleetSummary: () => getJson<any>('/api/v1/fleet/summary'),
   fleetMode: () => getJson<any>('/api/v1/fleet/mode'),
   setFleetMode: (mode: string) => getJson<any>(`/api/v1/fleet/mode?mode=${mode}`, { method: 'POST' }),
+  sensorDetail: (id: string) => getJson<any>(`/api/v1/sensorctl/${id}`),
+  sensorDiag: (id: string) => getJson<any>(`/api/v1/sensorctl/${id}/diagnostics`),
+  sensorCmd: (id: string, cmd: string, value?: number) =>
+    getJson<any>(`/api/v1/sensorctl/${id}/cmd`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(value != null ? { cmd, value } : { cmd }),
+    }),
   fusion: (cluster: string, mode?: string) => getJson<any>(`/api/v1/fusion/${cluster}${mode ? '?mode=' + mode : ''}`),
 
   // ── Comandos de device (via MQTT, por cluster) ──

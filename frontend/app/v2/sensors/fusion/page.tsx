@@ -1,329 +1,225 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/v2-api';
 
 /* ════════════════════════════════════════════════════════════════════
-   /v2/sensors/fusion — SALA DE CONTROLO DE SENSORES
-   Mapa central · interruptor Simulação/Real · tudo clicável · ao vivo.
-   Backend: /fleet?mode · /fusion/{c}?mode · /fleet/mode · /devices/*
+   /v2/sensors/fusion — CONSOLA DE SENSORES (NOC completo)
+   Cada sensor clicavel. Cada botao responde (sim coerente / real MQTT).
+   Tabs: Sensores · Rede · Fusão · Terminal.
+   Interruptor Simulação/Real. Backend: /fleet /fusion /sensorctl /devices.
    ════════════════════════════════════════════════════════════════════ */
 
-const REFRESH_MS = 5000;
+const REFRESH_MS = 6000;
+const CLUSTERS = ['wc-01','wc-02','wc-03','wc-04','wc-05','wc-06','wc-07','wc-08'];
 
-// Geometria (fonte: clusters_geo). e_m/n_m em metros. bbox 298.5 × 327.3.
-const SPAN_E = 298.5, SPAN_N = 327.3;
-const GEO: Record<string, { e: number; n: number; uni: boolean; desc: string; cap: number }> = {
-  'wc-01': { e: 215.2, n: 327.3, uni: false, desc: 'V34 · junto ao P1', cap: 135 },
-  'wc-02': { e: 256.9, n: 286.1, uni: false, desc: 'V35 · fem. dominante', cap: 126 },
-  'wc-03': { e: 268.2, n: 194.8, uni: false, desc: 'S36 · entrada', cap: 102 },
-  'wc-04': { e: 298.5, n: 288.3, uni: false, desc: 'S37 · cota +20m', cap: 150 },
-  'wc-05': { e: 274.2, n: 238.2, uni: true,  desc: 'M38 · só entrada', cap: 133 },
-  'wc-06': { e: 60.7,  n: 82.4,  uni: true,  desc: 'W39 · o maior', cap: 208 },
-  'wc-07': { e: 228.2, n: 148.1, uni: false, desc: 'M40 · cacifos', cap: 138 },
-  'wc-08': { e: 0.0,   n: 0.0,   uni: false, desc: 'V41 · produção', cap: 145 },
+const GEO: Record<string,{e:number;n:number;uni:boolean}> = {
+  'wc-01':{e:215.2,n:327.3,uni:false},'wc-02':{e:256.9,n:286.1,uni:false},
+  'wc-03':{e:268.2,n:194.8,uni:false},'wc-04':{e:298.5,n:288.3,uni:false},
+  'wc-05':{e:274.2,n:238.2,uni:true}, 'wc-06':{e:60.7,n:82.4,uni:true},
+  'wc-07':{e:228.2,n:148.1,uni:false},'wc-08':{e:0,n:0,uni:false},
 };
-const LANDMARKS = [
-  { id: 'ent', label: 'Entrada', e: 290, n: 175, kind: 'ent' },
-  { id: 'pm', label: 'Palco Mundo', e: 70, n: 120, kind: 'stage' },
-  { id: 'mv', label: 'Music Valley', e: 30, n: 60, kind: 'stage' },
-  { id: 'sb', label: 'Super Bock', e: 120, n: 70, kind: 'stage' },
+const SPAN_E=298.5, SPAN_N=327.3, PAD=30;
+
+const TABS = [['sensores','Sensores'],['rede','Rede'],['fusao','Fusão'],['terminal','Terminal']];
+const CMDS: [string,string][] = [
+  ['ping','Ping'],['diagnostics','Diagnóstico'],['restart','Reiniciar'],
+  ['reset_counters','Reset'],['calibrate','Calibrar'],['identify','Identificar'],['ota','OTA'],
 ];
-const CLUSTERS = Object.keys(GEO);
 
-// padding do mapa em metros
-const PAD = 30;
-function toXY(e: number, n: number, w: number, h: number) {
-  const x = ((e + PAD) / (SPAN_E + PAD * 2)) * w;
-  const y = h - ((n + PAD) / (SPAN_N + PAD * 2)) * h; // norte para cima
-  return { x, y };
-}
+function tipoLabel(t:string){return ({lilygo:'LilyGo',camera:'Câmara',ir:'Infravermelho',gateway_lora:'Gateway LoRa',ap_wifi:'Ponto WiFi'} as any)[t]||t;}
+function statusColor(s:string){return s==='online'?'#4A7C59':s==='degraded'?'#C25A1A':s==='offline'?'#8A938B':'#C9CEC4';}
+function statusLabel(s:string){return ({online:'Online',degraded:'Instável',offline:'Offline',maintenance:'Manutenção',planned:'Planeado','sem-dados':'Sem dados'} as any)[s]||s;}
+function srcLabel(s:string){return ({camera:'Câmara',ir:'Infraverm.',wifi:'WiFi'} as any)[s]||s;}
 
-function occColor(pct: number): string {
-  if (pct >= 90) return '#C25A1A';       // âmbar (crítico)
-  if (pct >= 70) return '#D98A4A';       // âmbar claro
-  if (pct >= 40) return '#6FAF82';       // verde claro
-  return '#4A7C59';                       // verde
-}
-function tipoLabel(t: string): string {
-  return ({ lilygo:'LilyGo', camera:'Câmara', ir:'Infraverm.', gateway_lora:'Gateway', ap_wifi:'WiFi AP' } as any)[t] || t;
-}
-function srcLabel(s: string): string {
-  return ({ camera:'Câmara', ir:'Infravermelho', wifi:'WiFi (LilyGo)' } as any)[s] || s;
-}
+type Sensor={id:string;tipo:string;cluster:string|null;status:string;modelo?:string;real?:boolean;link?:string;role?:string;origem?:string;battery?:{pct:number;fonte:string};};
 
-type Sensor = {
-  id: string; tipo: string; cluster: string | null; status: string;
-  modelo?: string; real?: boolean; link?: string; origem?: string;
-  battery?: { pct: number; fonte: string };
-};
-type Fusion = {
-  pessoas: number; ocupacao_pct: number; fila_atual: number; tempo_espera_min: number;
-  confianca: number; pesos: Record<string, number>; estimativas_por_fonte?: Record<string, number>;
-  estado: string; data_source: string; capacidade_dentro: number; fontes_disponiveis: string[];
-};
+export default function SensorConsole(){
+  const [mode,setMode]=useState<'sim'|'real'>('sim');
+  const [tab,setTab]=useState('sensores');
+  const [fleet,setFleet]=useState<Sensor[]>([]);
+  const [fusions,setFusions]=useState<Record<string,any>>({});
+  const [filterCluster,setFilterCluster]=useState('todos');
+  const [filterTipo,setFilterTipo]=useState('todos');
+  const [selSensor,setSelSensor]=useState<Sensor|null>(null);
+  const [detail,setDetail]=useState<any>(null);
+  const [cmdResults,setCmdResults]=useState<any[]>([]);
+  const [busy,setBusy]=useState<string|null>(null);
+  const [selFusion,setSelFusion]=useState('wc-06');
+  // terminal
+  const [termLines,setTermLines]=useState<string[]>(['PlantaOS Device Terminal','Escreve help para ver comandos.','']);
+  const [termInput,setTermInput]=useState('');
+  const wsRef=useRef<WebSocket|null>(null);
+  const termRef=useRef<HTMLDivElement>(null);
 
-export default function ControlRoom() {
-  const [mode, setMode] = useState<'sim' | 'real'>('sim');
-  const [view, setView] = useState<'sala' | 'rede' | 'manut'>('sala');
-  const [fleet, setFleet] = useState<Sensor[]>([]);
-  const [fusions, setFusions] = useState<Record<string, Fusion>>({});
-  const [sel, setSel] = useState<string>('wc-06');
-  const [selSensor, setSelSensor] = useState<Sensor | null>(null);
-  const [cmdLog, setCmdLog] = useState<string[]>([]);
-  const [tick, setTick] = useState(0);
-  const mapRef = useRef<HTMLDivElement>(null);
-  const [dims, setDims] = useState({ w: 600, h: 460 });
+  // ler modo inicial
+  useEffect(()=>{api.fleetMode().then((r:any)=>{if(r?.mode)setMode(r.mode);}).catch(()=>{});},[]);
 
-  // ler o modo do backend uma vez
-  useEffect(() => {
-    api.fleetMode().then((r: any) => { if (r?.mode) setMode(r.mode); }).catch(()=>{});
-  }, []);
-
-  // medir o mapa
-  useEffect(() => {
-    const measure = () => {
-      if (mapRef.current) {
-        const r = mapRef.current.getBoundingClientRect();
-        setDims({ w: r.width, h: r.height });
-      }
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, [view]);
-
-  // polling: fleet + fusao de todos os clusters
-  useEffect(() => {
-    let cancel = false;
-    const load = async () => {
-      try {
-        const f = await api.fleet(mode);
-        if (cancel) return;
-        setFleet(f.sensors || []);
-        const results = await Promise.all(
-          CLUSTERS.map((c) => api.fusion(c, mode).catch(() => null))
-        );
-        if (cancel) return;
-        const fu: Record<string, Fusion> = {};
-        CLUSTERS.forEach((c, i) => { if (results[i]) fu[c] = results[i]; });
+  // polling fleet + fusao
+  useEffect(()=>{
+    let cancel=false;
+    const load=async()=>{
+      try{
+        const f=await api.fleet(mode);
+        if(cancel)return;
+        setFleet(f.sensors||[]);
+        const rs=await Promise.all(CLUSTERS.map(c=>api.fusion(c,mode).catch(()=>null)));
+        if(cancel)return;
+        const fu:Record<string,any>={};
+        CLUSTERS.forEach((c,i)=>{if(rs[i])fu[c]=rs[i];});
         setFusions(fu);
-        setTick((t) => t + 1);
-      } catch { /* */ }
+      }catch{}
     };
-    load();
-    const iv = setInterval(load, REFRESH_MS);
-    return () => { cancel = true; clearInterval(iv); };
-  }, [mode]);
+    load();const iv=setInterval(load,REFRESH_MS);
+    return()=>{cancel=true;clearInterval(iv);};
+  },[mode]);
 
-  const toggleMode = async () => {
-    const next = mode === 'sim' ? 'real' : 'sim';
+  // detalhe do sensor selecionado
+  useEffect(()=>{
+    if(!selSensor)return;
+    setDetail(null);setCmdResults([]);
+    api.sensorDetail(selSensor.id).then(setDetail).catch(()=>{});
+  },[selSensor]);
+
+  const toggleMode=async()=>{
+    const next=mode==='sim'?'real':'sim';
     setMode(next);
-    try { await api.setFleetMode(next); } catch { /* */ }
+    try{await api.setFleetMode(next);}catch{}
   };
 
-  const stats = useMemo(() => {
-    const online = fleet.filter((s) => s.status === 'online').length;
-    const bats = fleet.filter((s) => s.battery).map((s) => s.battery!.pct);
-    const batAvg = bats.length ? Math.round(bats.reduce((a,b)=>a+b,0)/bats.length) : null;
-    const totalPessoas = Object.values(fusions).reduce((a, f) => a + (f.pessoas || 0), 0);
-    return { online, total: fleet.length, batAvg, totalPessoas };
-  }, [fleet, fusions]);
-
-  const selFusion = fusions[sel];
-  const sensorsOfSel = useMemo(() => fleet.filter((s) => s.cluster === sel), [fleet, sel]);
-
-  const runCmd = async (cluster: string, label: string, fn: () => Promise<any>) => {
-    const cu = cluster.toUpperCase();
-    setCmdLog((l) => [`${new Date().toLocaleTimeString()} · ${cu} · ${label}…`, ...l].slice(0, 14));
-    try {
-      const r = await fn();
-      setCmdLog((l) => [`${new Date().toLocaleTimeString()} · ${cu} · ${label} → ${r?.sent ? 'OK' : 'enviado'}`, ...l].slice(0, 14));
-    } catch {
-      setCmdLog((l) => [`${new Date().toLocaleTimeString()} · ${cu} · ${label} → device offline`, ...l].slice(0, 14));
+  const runCmd=async(cmd:string)=>{
+    if(!selSensor)return;
+    setBusy(cmd);
+    try{
+      const value=cmd==='calibrate'?20:undefined;
+      const r=await api.sensorCmd(selSensor.id,cmd,value);
+      setCmdResults((l)=>[{cmd,ts:new Date().toLocaleTimeString(),r},...l].slice(0,8));
+    }catch(e:any){
+      setCmdResults((l)=>[{cmd,ts:new Date().toLocaleTimeString(),r:{ok:false,resposta:'erro de rede'}},...l].slice(0,8));
     }
+    setBusy(null);
   };
+
+  // WebSocket terminal
+  useEffect(()=>{
+    if(tab!=='terminal')return;
+    const proto=window.location.protocol==='https:'?'wss:':'ws:';
+    const url=`${proto}//api.plantarockinrio.com/api/v1/devices/terminal`;
+    let ws:WebSocket;
+    try{
+      ws=new WebSocket(url);
+      wsRef.current=ws;
+      ws.onmessage=(ev)=>{
+        try{const d=JSON.parse(ev.data);if(d.output){const clean=d.output.replace(/\x1b\[[0-9;]*m/g,'');setTermLines((l)=>[...l,clean].slice(-200));}}catch{}
+      };
+      ws.onerror=()=>setTermLines((l)=>[...l,'[erro de ligação ao terminal]']);
+    }catch{}
+    return()=>{try{ws&&ws.close();}catch{}};
+  },[tab]);
+
+  useEffect(()=>{if(termRef.current)termRef.current.scrollTop=termRef.current.scrollHeight;},[termLines]);
+
+  const sendTerm=()=>{
+    const cmd=termInput.trim();if(!cmd)return;
+    setTermLines((l)=>[...l,`$ ${cmd}`]);
+    try{wsRef.current?.send(JSON.stringify({command:cmd}));}catch{setTermLines((l)=>[...l,'[terminal offline]']);}
+    setTermInput('');
+  };
+
+  const stats=useMemo(()=>{
+    const online=fleet.filter(s=>s.status==='online').length;
+    const bats=fleet.filter(s=>s.battery).map(s=>s.battery!.pct);
+    const batAvg=bats.length?Math.round(bats.reduce((a,b)=>a+b,0)/bats.length):null;
+    return {online,total:fleet.length,batAvg};
+  },[fleet]);
+
+  const filtered=useMemo(()=>fleet.filter(s=>
+    (filterCluster==='todos'||s.cluster===filterCluster)&&
+    (filterTipo==='todos'||s.tipo===filterTipo)
+  ),[fleet,filterCluster,filterTipo]);
 
   return (
-    <div className="cr-root">
-      {/* HEADER */}
-      <div className="cr-head">
-        <div className="cr-head-l">
-          <div className="cr-eyebrow">PlantaOS · Sala de controlo</div>
-          <h1 className="cr-title">Sensores & Fusão</h1>
+    <div className="sx-root">
+      <div className="sx-head">
+        <div>
+          <div className="sx-eyebrow">PlantaOS · Consola de sensores</div>
+          <h1 className="sx-title">Controlo da frota</h1>
         </div>
-        <div className="cr-head-r">
-          <button className={`cr-mode ${mode==='sim'?'is-sim':'is-real'}`} onClick={toggleMode}>
-            <span className="cr-mode-dot" />
-            {mode==='sim' ? 'Simulação' : 'Dados reais'}
-            <span className="cr-mode-sub">tocar para trocar</span>
-          </button>
-          <div className="cr-refresh">atualiza {REFRESH_MS/1000}s · ●{tick%2?'':' '}</div>
-        </div>
+        <button className={`sx-mode ${mode}`} onClick={toggleMode}>
+          {mode==='sim'?'Simulação':'Dados reais'}
+          <span>tocar para trocar</span>
+        </button>
       </div>
 
-      {/* VIEW TABS */}
-      <div className="cr-tabs">
-        {[['sala','Sala de controlo'],['rede','Rede'],['manut','Manutenção']].map(([id,l])=>(
-          <button key={id} className={`cr-tab ${view===id?'is-on':''}`} onClick={()=>setView(id as any)}>{l}</button>
-        ))}
+      <div className="sx-kpis">
+        <div className="sx-kpi"><b>{stats.total}</b><span>sensores</span></div>
+        <div className="sx-kpi"><b style={{color:'#4A7C59'}}>{stats.online}</b><span>online</span></div>
+        <div className="sx-kpi"><b>{stats.batAvg!=null?stats.batAvg+'%':'—'}</b><span>bateria média</span></div>
+        <div className="sx-kpi"><b className={mode==='sim'?'tsim':'treal'}>{mode==='sim'?'SIM':'REAL'}</b><span>origem</span></div>
       </div>
 
-      <div className="cr-body">
-        {/* ─────────── SALA DE CONTROLO ─────────── */}
-        {view === 'sala' && (
-          <div className="cr-sala">
-            {/* KPIs topo */}
-            <div className="cr-kpis">
-              <div className="cr-kpi"><b>{stats.totalPessoas}</b><span>pessoas no recinto</span></div>
-              <div className="cr-kpi"><b style={{color:'#4A7C59'}}>{stats.online}/{stats.total}</b><span>sensores online</span></div>
-              <div className="cr-kpi"><b>{stats.batAvg!=null?stats.batAvg+'%':'—'}</b><span>bateria média</span></div>
-              <div className="cr-kpi"><b className={mode==='sim'?'cr-tag-sim':'cr-tag-real'}>{mode==='sim'?'SIMULAÇÃO':'REAL'}</b><span>origem dos dados</span></div>
+      <div className="sx-tabs">
+        {TABS.map(([id,l])=><button key={id} className={`sx-tab ${tab===id?'on':''}`} onClick={()=>setTab(id)}>{l}</button>)}
+      </div>
+
+      <div className="sx-body">
+        {/* SENSORES */}
+        {tab==='sensores' && (
+          <div className="sx-sensores">
+            <div className="sx-filters">
+              <select value={filterCluster} onChange={e=>setFilterCluster(e.target.value)}>
+                <option value="todos">Todos os clusters</option>
+                {CLUSTERS.map(c=><option key={c} value={c}>{c.toUpperCase()}</option>)}
+              </select>
+              <select value={filterTipo} onChange={e=>setFilterTipo(e.target.value)}>
+                <option value="todos">Todos os tipos</option>
+                {['lilygo','camera','ir','gateway_lora','ap_wifi'].map(t=><option key={t} value={t}>{tipoLabel(t)}</option>)}
+              </select>
+              <span className="sx-count">{filtered.length} sensores</span>
             </div>
-
-            <div className="cr-main">
-              {/* MAPA */}
-              <div className="cr-map" ref={mapRef}>
-                <svg width={dims.w} height={dims.h} className="cr-svg">
-                  {/* grelha leve */}
-                  {[0.25,0.5,0.75].map((g)=>(
-                    <g key={g}>
-                      <line x1={dims.w*g} y1={0} x2={dims.w*g} y2={dims.h} stroke="#EEF1EA" strokeWidth={1}/>
-                      <line x1={0} y1={dims.h*g} x2={dims.w} y2={dims.h*g} stroke="#EEF1EA" strokeWidth={1}/>
-                    </g>
-                  ))}
-                  {/* landmarks */}
-                  {LANDMARKS.map((lm)=>{
-                    const {x,y}=toXY(lm.e,lm.n,dims.w,dims.h);
-                    return (
-                      <g key={lm.id}>
-                        <rect x={x-26} y={y-9} width={52} height={18} rx={4}
-                          fill={lm.kind==='ent'?'#E8F1EA':'#F0EEE6'} stroke="#D8DCD2" strokeWidth={1}/>
-                        <text x={x} y={y+3} textAnchor="middle" fontSize={9} fill="#6A746B">{lm.label}</text>
-                      </g>
-                    );
-                  })}
-                  {/* clusters */}
-                  {CLUSTERS.map((c)=>{
-                    const g=GEO[c]; const {x,y}=toXY(g.e,g.n,dims.w,dims.h);
-                    const f=fusions[c]; const pct=f?.ocupacao_pct ?? 0;
-                    const col=occColor(pct);
-                    const r=14 + (pct/100)*16; // raio cresce com ocupação
-                    const isSel=c===sel;
-                    const hasData = f && f.estado==='ok';
-                    return (
-                      <g key={c} onClick={()=>setSel(c)} style={{cursor:'pointer'}}>
-                        {hasData && <circle cx={x} cy={y} r={r+8} fill={col} opacity={0.12}>
-                          <animate attributeName="r" values={`${r+4};${r+12};${r+4}`} dur="3s" repeatCount="indefinite"/>
-                          <animate attributeName="opacity" values="0.18;0.05;0.18" dur="3s" repeatCount="indefinite"/>
-                        </circle>}
-                        <circle cx={x} cy={y} r={r} fill={hasData?col:'#C9CEC4'}
-                          stroke={isSel?'#0D1A0F':'#fff'} strokeWidth={isSel?3:2}/>
-                        <text x={x} y={y-r-6} textAnchor="middle" fontSize={11} fontWeight={700} fill="#0D1A0F">{c.toUpperCase()}</text>
-                        {hasData && <text x={x} y={y+4} textAnchor="middle" fontSize={11} fontWeight={700} fill="#fff">{Math.round(pct)}%</text>}
-                        {g.uni && <text x={x} y={y+r+13} textAnchor="middle" fontSize={8} fill="#6A746B">unissex</text>}
-                      </g>
-                    );
-                  })}
-                </svg>
-                <div className="cr-map-legend">
-                  <span><i style={{background:'#4A7C59'}}/>&lt;40%</span>
-                  <span><i style={{background:'#6FAF82'}}/>40-70%</span>
-                  <span><i style={{background:'#D98A4A'}}/>70-90%</span>
-                  <span><i style={{background:'#C25A1A'}}/>&gt;90%</span>
-                </div>
-              </div>
-
-              {/* PAINEL DO CLUSTER */}
-              <div className="cr-panel">
-                {selFusion ? (
-                  <>
-                    <div className="cr-panel-head">
-                      <div>
-                        <div className="cr-panel-id">{sel.toUpperCase()}</div>
-                        <div className="cr-panel-desc">{GEO[sel]?.desc}</div>
-                      </div>
-                      <div className={`cr-prov cr-prov-${selFusion.data_source}`}>
-                        {selFusion.data_source==='simulado'?'simulado':
-                         selFusion.data_source==='real'?'real':
-                         selFusion.data_source==='stale'?'desatualizado':'sem dados'}
-                      </div>
-                    </div>
-
-                    {selFusion.estado==='ok' ? (
-                      <>
-                        <div className="cr-big">{selFusion.pessoas}<span> pessoas</span></div>
-                        <div className="cr-occ-bar">
-                          <div className="cr-occ-fill" style={{width:`${Math.min(100,selFusion.ocupacao_pct)}%`, background:occColor(selFusion.ocupacao_pct)}}/>
-                        </div>
-                        <div className="cr-occ-label">{selFusion.ocupacao_pct}% de {selFusion.capacidade_dentro} lugares</div>
-
-                        <div className="cr-metrics">
-                          <div><span>Fila</span><b>{selFusion.fila_atual}</b></div>
-                          <div><span>Espera</span><b>{selFusion.tempo_espera_min} min</b></div>
-                          <div><span>Confiança</span><b>{Math.round(selFusion.confianca*100)}%</b></div>
-                        </div>
-
-                        <div className="cr-fs-title">Fontes & pesos · ao vivo</div>
-                        {Object.entries(selFusion.pesos||{}).map(([src,w])=>(
-                          <div key={src} className="cr-fs-row">
-                            <div className="cr-fs-lbl">{srcLabel(src)}</div>
-                            <div className="cr-fs-track"><div className="cr-fs-bar" style={{width:`${w*100}%`}}/></div>
-                            <div className="cr-fs-val"><b>{Math.round(w*100)}%</b> · {selFusion.estimativas_por_fonte?.[src] ?? '—'}</div>
-                          </div>
-                        ))}
-                        <p className="cr-hint">Os pesos redistribuem-se se uma fonte cai. A confiança sobe quando as fontes concordam.</p>
-                      </>
-                    ) : (
-                      <div className="cr-empty">
-                        <p>Sem dados de sensores para {sel.toUpperCase()}.</p>
-                        <p className="cr-soft">Fontes possíveis: {(selFusion.fontes_disponiveis||[]).join(', ')}</p>
-                        {mode==='real' && <p className="cr-soft">Em modo real, os números só aparecem quando um sensor envia.</p>}
-                      </div>
-                    )}
-
-                    {/* sensores deste cluster */}
-                    <div className="cr-cl-sensors">
-                      <div className="cr-fs-title">Sensores ({sensorsOfSel.length})</div>
-                      <div className="cr-chips">
-                        {sensorsOfSel.map((s)=>(
-                          <button key={s.id} className="cr-chip" onClick={()=>setSelSensor(s)}>
-                            <span className="cr-chip-dot" style={{background: s.status==='online'?'#4A7C59':s.status==='degraded'?'#C25A1A':'#C9CEC4'}}/>
-                            {tipoLabel(s.tipo)}{s.battery?` ${s.battery.pct}%`:''}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                ) : <p className="cr-soft">A carregar…</p>}
-              </div>
+            <div className="sx-grid">
+              {filtered.map(s=>(
+                <button key={s.id} className={`sx-card ${selSensor?.id===s.id?'sel':''}`} onClick={()=>setSelSensor(s)}>
+                  <div className="sx-card-top">
+                    <span className="sx-dot" style={{background:statusColor(s.status)}}/>
+                    <span className="sx-card-tipo">{tipoLabel(s.tipo)}</span>
+                  </div>
+                  <div className="sx-card-id">{s.id}</div>
+                  <div className="sx-card-bot">
+                    {s.modelo&&s.real?<span className="sx-card-mod">{s.modelo}</span>:<span className="sx-card-st">{statusLabel(s.status)}</span>}
+                    {s.battery&&<span className="sx-card-bat">{s.battery.pct}%</span>}
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
         )}
 
-        {/* ─────────── REDE ─────────── */}
-        {view === 'rede' && (
-          <div className="cr-rede">
-            <div className="cr-flow">
-              <div className="cr-fnode">IR · elétrico</div><span>→</span>
-              <div className="cr-fnode">LilyGo · powerbank</div><span>→</span>
-              <div className="cr-fcol">
-                <div className="cr-fnode cr-ok">WiFi 6E + mesh<br/><small>grupo central</small></div>
-                <div className="cr-fnode cr-warn">LoRa + SIM 4G<br/><small>WC-06, WC-08</small></div>
+        {/* REDE */}
+        {tab==='rede' && (
+          <div className="sx-rede">
+            <div className="sx-flow">
+              <div className="sx-fn">IR<small>elétrico</small></div><span>→</span>
+              <div className="sx-fn">LilyGo<small>powerbank</small></div><span>→</span>
+              <div className="sx-fcol">
+                <div className="sx-fn ok">WiFi 6E + mesh<small>central</small></div>
+                <div className="sx-fn warn">LoRa + SIM<small>WC-06/08</small></div>
               </div><span>→</span>
-              <div className="cr-fnode">Backhaul 4G</div><span>→</span>
-              <div className="cr-fnode cr-ok">Railway · Fusão</div>
+              <div className="sx-fn">4G<small>NOS+Vodafone</small></div><span>→</span>
+              <div className="sx-fn ok">Railway<small>fusão</small></div>
             </div>
-            <div className="cr-net-grid">
-              {CLUSTERS.map((c)=>{
-                const sens=fleet.filter((s)=>s.cluster===c);
-                const on=sens.filter((s)=>s.status==='online').length;
+            <div className="sx-net-grid">
+              {CLUSTERS.map(c=>{
+                const sens=fleet.filter(s=>s.cluster===c);
+                const on=sens.filter(s=>s.status==='online').length;
+                const lily=sens.filter(s=>s.tipo==='lilygo').length;
                 const iso=c==='wc-06'||c==='wc-08';
                 return (
-                  <div key={c} className="cr-net-card" onClick={()=>{setSel(c);setView('sala');}}>
-                    <div className="cr-net-id">{c.toUpperCase()}</div>
-                    <div className="cr-net-meta">{on}/{sens.length} online</div>
-                    <div className="cr-net-link" style={{color:iso?'#C25A1A':'#1B3A21'}}>{iso?'LoRa + SIM':'WiFi + mesh'}</div>
+                  <div key={c} className="sx-net-card">
+                    <div className="sx-net-id">{c.toUpperCase()}</div>
+                    <div className="sx-net-row"><span>Sensores</span><b>{on}/{sens.length}</b></div>
+                    <div className="sx-net-row"><span>LilyGo</span><b>{lily}</b></div>
+                    <div className="sx-net-link" style={{color:iso?'#C25A1A':'#1B3A21'}}>{iso?'LoRa + SIM 4G':'WiFi + mesh'}</div>
                   </div>
                 );
               })}
@@ -331,191 +227,225 @@ export default function ControlRoom() {
           </div>
         )}
 
-        {/* ─────────── MANUTENÇÃO ─────────── */}
-        {view === 'manut' && (
-          <div className="cr-manut">
-            <div className="cr-manut-grid">
-              {CLUSTERS.map((c)=>{
-                const cu=c.toUpperCase();
-                return (
-                  <div key={c} className="cr-manut-card">
-                    <div className="cr-manut-id">{cu}</div>
-                    <div className="cr-manut-btns">
-                      <button onClick={()=>runCmd(c,'Ping',()=>api.devicePing(cu))}>Ping</button>
-                      <button onClick={()=>runCmd(c,'Diagnóstico',()=>api.deviceDiagnostics(cu))}>Diagnóstico</button>
-                      <button onClick={()=>runCmd(c,'Reiniciar',()=>api.deviceRestart(cu))}>Reiniciar</button>
-                      <button onClick={()=>runCmd(c,'Reset',()=>api.deviceReset(cu))}>Reset</button>
-                    </div>
+        {/* FUSAO */}
+        {tab==='fusao' && (
+          <div className="sx-fusao">
+            <div className="sx-filters">
+              {CLUSTERS.map(c=><button key={c} className={`sx-chip ${selFusion===c?'on':''}`} onClick={()=>setSelFusion(c)}>{c.toUpperCase()}</button>)}
+            </div>
+            {(()=>{
+              const f=fusions[selFusion];
+              if(!f)return <p className="sx-soft">A carregar…</p>;
+              if(f.estado!=='ok')return (
+                <div className="sx-fusao-empty">
+                  <p>Sem dados para {selFusion.toUpperCase()}.</p>
+                  <p className="sx-soft">Fontes: {(f.fontes_disponiveis||[]).join(', ')} · {mode==='real'?'aguarda sensores reais':'—'}</p>
+                </div>
+              );
+              return (
+                <div className="sx-fusao-grid">
+                  <div className="sx-fcard">
+                    <div className="sx-fbig">{f.pessoas}<span> pessoas</span></div>
+                    <div className="sx-fobar"><div className="sx-fofill" style={{width:`${Math.min(100,f.ocupacao_pct)}%`,background:f.ocupacao_pct>=90?'#C25A1A':f.ocupacao_pct>=70?'#D98A4A':'#4A7C59'}}/></div>
+                    <div className="sx-soft">{f.ocupacao_pct}% de {f.capacidade_dentro} · fila {f.fila_atual} · espera {f.tempo_espera_min}min</div>
+                    <div className={`sx-prov ${f.data_source}`}>{f.data_source==='simulado'?'simulado':f.data_source==='real'?'real':f.data_source==='stale'?'desatualizado':'sem dados'}</div>
                   </div>
-                );
-              })}
+                  <div className="sx-fcard">
+                    <div className="sx-fs-t">Fontes & pesos · confiança {Math.round((f.confianca||0)*100)}%</div>
+                    {Object.entries(f.pesos||{}).map(([src,w]:any)=>(
+                      <div key={src} className="sx-fs-row">
+                        <div className="sx-fs-l">{srcLabel(src)}</div>
+                        <div className="sx-fs-track"><div className="sx-fs-bar" style={{width:`${w*100}%`}}/></div>
+                        <div className="sx-fs-v"><b>{Math.round(w*100)}%</b> · {f.estimativas_por_fonte?.[src]??'—'}</div>
+                      </div>
+                    ))}
+                    <p className="sx-soft" style={{marginTop:10,fontSize:12}}>Pesos adaptam-se quando uma fonte cai. Confiança sobe com concordância.</p>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* TERMINAL */}
+        {tab==='terminal' && (
+          <div className="sx-terminal">
+            <div className="sx-term-out" ref={termRef}>
+              {termLines.map((l,i)=><div key={i} className="sx-term-line">{l}</div>)}
             </div>
-            <div className="cr-log">
-              <div className="cr-log-title">Registo de comandos</div>
-              {cmdLog.length===0?<div className="cr-soft">Sem ações ainda.</div>:cmdLog.map((l,i)=><div key={i} className="cr-log-line">{l}</div>)}
+            <div className="sx-term-in">
+              <span>$</span>
+              <input value={termInput} onChange={e=>setTermInput(e.target.value)}
+                onKeyDown={e=>{if(e.key==='Enter')sendTerm();}}
+                placeholder="scan · status all · ping WC-06 · diagnostics WC-06 · help" autoFocus/>
+              <button onClick={sendTerm}>Enviar</button>
             </div>
+            <p className="sx-soft" style={{fontSize:12,marginTop:8}}>Ligado ao terminal de dispositivos. Os comandos chegam ao hardware via MQTT (ou respondem em simulação).</p>
           </div>
         )}
       </div>
 
-      {/* DRAWER SENSOR */}
+      {/* DRAWER DO SENSOR — botões que respondem */}
       {selSensor && (
-        <div className="cr-drawer-bg" onClick={()=>setSelSensor(null)}>
-          <div className="cr-drawer" onClick={(e)=>e.stopPropagation()}>
-            <div className="cr-drawer-head">
-              <div className="cr-mono">{selSensor.id}</div>
-              <button className="cr-x" onClick={()=>setSelSensor(null)}>&times;</button>
-            </div>
-            {selSensor.modelo && selSensor.real && <div className="cr-badge">{selSensor.modelo}</div>}
-            <div className="cr-drawer-rows">
-              <div><span>Tipo</span><b>{tipoLabel(selSensor.tipo)}</b></div>
-              <div><span>Cluster</span><b>{selSensor.cluster?.toUpperCase()||'—'}</b></div>
-              <div><span>Estado</span><b>{selSensor.status}</b></div>
-              <div><span>Bateria</span><b>{selSensor.battery?`${selSensor.battery.pct}% (${selSensor.battery.fonte})`:'sem bateria'}</b></div>
-              <div><span>Ligação</span><b>{selSensor.link||'—'}</b></div>
-              <div><span>Origem</span><b>{selSensor.origem||'—'}</b></div>
-            </div>
-            {selSensor.cluster && (
-              <div className="cr-drawer-cmds">
-                <button onClick={()=>runCmd(selSensor.cluster!,'Ping',()=>api.devicePing(selSensor.cluster!.toUpperCase()))}>Ping cluster</button>
-                <button onClick={()=>runCmd(selSensor.cluster!,'Diagnóstico',()=>api.deviceDiagnostics(selSensor.cluster!.toUpperCase()))}>Diagnóstico</button>
+        <div className="sx-drawer-bg" onClick={()=>setSelSensor(null)}>
+          <div className="sx-drawer" onClick={e=>e.stopPropagation()}>
+            <div className="sx-dr-head">
+              <div>
+                <div className="sx-dr-id">{selSensor.id}</div>
+                <div className="sx-dr-tipo">{tipoLabel(selSensor.tipo)} · {selSensor.cluster?.toUpperCase()}</div>
               </div>
-            )}
-            <p className="cr-soft" style={{marginTop:10,fontSize:12}}>Os comandos chegam ao LilyGo do cluster (que lê este sensor).</p>
+              <button className="sx-x" onClick={()=>setSelSensor(null)}>&times;</button>
+            </div>
+
+            {detail ? (
+              <div className="sx-dr-rows">
+                {detail.modelo&&detail.real&&<div className="sx-dr-badge">{detail.modelo}</div>}
+                <div><span>Estado</span><b style={{color:statusColor(detail.status)}}>{statusLabel(detail.status)}</b></div>
+                {detail.battery&&<div><span>Bateria</span><b>{detail.battery.pct}% ({detail.battery.fonte})</b></div>}
+                {detail.uptime_s!=null&&<div><span>Uptime</span><b>{Math.floor(detail.uptime_s/3600)}h {Math.floor((detail.uptime_s%3600)/60)}m</b></div>}
+                {detail.rssi_dbm!=null&&<div><span>Sinal</span><b>{detail.rssi_dbm} dBm</b></div>}
+                <div><span>Ligação</span><b>{detail.link||'—'}</b></div>
+                <div><span>Alimentação</span><b>{detail.power||'—'}</b></div>
+                <div><span>Origem</span><b>{detail.origem||mode}</b></div>
+              </div>
+            ) : <p className="sx-soft">A carregar detalhe…</p>}
+
+            <div className="sx-dr-cmds-t">Comandos</div>
+            <div className="sx-dr-cmds">
+              {CMDS.map(([cmd,label])=>(
+                <button key={cmd} disabled={busy===cmd} onClick={()=>runCmd(cmd)} className={busy===cmd?'busy':''}>
+                  {busy===cmd?'…':label}
+                </button>
+              ))}
+            </div>
+
+            <div className="sx-dr-results">
+              {cmdResults.length===0?<div className="sx-soft" style={{fontSize:12}}>Carrega num botão — a resposta aparece aqui.</div>:
+                cmdResults.map((cr,i)=>(
+                  <div key={i} className="sx-res">
+                    <div className="sx-res-head"><b>{cr.cmd}</b><span>{cr.ts}</span></div>
+                    {cr.r.resposta && <div className={`sx-res-msg ${cr.r.ok===false?'fail':'ok'}`}>{cr.r.resposta}</div>}
+                    {cr.r.diagnostico && (
+                      <div className="sx-res-diag">
+                        {Object.entries(cr.r.diagnostico).map(([k,v]:any)=>(
+                          <div key={k}><span>{k}</span><b>{String(v)}</b></div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))
+              }
+            </div>
           </div>
         </div>
       )}
 
       <style jsx>{`
-        .cr-root { height: calc(100vh - 72px); display: flex; flex-direction: column;
-          overflow: hidden; color: #0D1A0F; }
-        .cr-head { display: flex; justify-content: space-between; align-items: flex-end;
-          padding: 18px clamp(16px,2.6vw,32px) 6px; flex-shrink: 0; }
-        .cr-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
-          text-transform: uppercase; color: #8A938B; }
-        .cr-title { font-size: clamp(20px,2.6vw,30px); font-weight: 600; margin: 2px 0 0; }
-        .cr-head-r { display: flex; align-items: center; gap: 14px; }
-        .cr-mode { display: flex; flex-direction: column; align-items: flex-start;
-          border: none; border-radius: 12px; padding: 8px 18px; cursor: pointer;
-          font-family: inherit; font-size: 15px; font-weight: 600; position: relative; transition: all .2s; }
-        .cr-mode.is-sim { background: #1B3A21; color: #fff; }
-        .cr-mode.is-real { background: #C25A1A; color: #fff; }
-        .cr-mode-dot { display: none; }
-        .cr-mode-sub { font-size: 10px; font-weight: 400; opacity: 0.7; }
-        .cr-refresh { font-size: 11px; color: #8A938B; }
+        .sx-root{height:calc(100vh - 72px);display:flex;flex-direction:column;overflow:hidden;color:#0D1A0F;}
+        .sx-head{display:flex;justify-content:space-between;align-items:flex-end;padding:18px clamp(16px,2.6vw,32px) 4px;flex-shrink:0;}
+        .sx-eyebrow{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8A938B;}
+        .sx-title{font-size:clamp(20px,2.6vw,30px);font-weight:600;margin:2px 0 0;}
+        .sx-mode{display:flex;flex-direction:column;align-items:flex-start;border:none;border-radius:12px;padding:8px 18px;cursor:pointer;font-family:inherit;font-size:15px;font-weight:600;color:#fff;transition:all .2s;}
+        .sx-mode.sim{background:#1B3A21;} .sx-mode.real{background:#C25A1A;}
+        .sx-mode span{font-size:10px;font-weight:400;opacity:.75;}
+        .sx-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:10px clamp(16px,2.6vw,32px) 0;flex-shrink:0;}
+        .sx-kpi{background:#fff;border:1px solid #E5E8E0;border-radius:10px;padding:10px 12px;}
+        .sx-kpi b{display:block;font-size:22px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums;color:#1B3A21;}
+        .sx-kpi span{font-size:11px;color:#8A938B;margin-top:3px;display:block;}
+        .tsim{color:#1B3A21!important;} .treal{color:#C25A1A!important;}
+        .sx-tabs{display:flex;gap:6px;padding:10px clamp(16px,2.6vw,32px);flex-shrink:0;}
+        .sx-tab{background:#fff;border:1px solid #E5E8E0;border-radius:999px;padding:7px 16px;font-size:13px;cursor:pointer;color:#0D1A0F;font-family:inherit;}
+        .sx-tab.on{background:#1B3A21;border-color:#1B3A21;color:#fff;font-weight:600;}
+        .sx-body{flex:1;min-height:0;overflow:hidden;padding:0 clamp(16px,2.6vw,32px) 18px;display:flex;flex-direction:column;}
 
-        .cr-tabs { display: flex; gap: 6px; padding: 6px clamp(16px,2.6vw,32px); flex-shrink: 0; }
-        .cr-tab { background: #fff; border: 1px solid #E5E8E0; border-radius: 999px;
-          padding: 7px 16px; font-size: 13px; cursor: pointer; color: #0D1A0F; font-family: inherit; }
-        .cr-tab.is-on { background: #1B3A21; border-color: #1B3A21; color: #fff; font-weight: 600; }
+        .sx-sensores{display:flex;flex-direction:column;min-height:0;flex:1;}
+        .sx-filters{display:flex;gap:10px;align-items:center;flex-shrink:0;margin-bottom:10px;flex-wrap:wrap;}
+        .sx-filters select{border:1px solid #E5E8E0;border-radius:8px;padding:7px 12px;font-family:inherit;font-size:13px;background:#fff;color:#0D1A0F;}
+        .sx-count{font-size:12px;color:#8A938B;}
+        .sx-grid{flex:1;min-height:0;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;align-content:start;}
+        .sx-card{background:#fff;border:1px solid #E5E8E0;border-radius:12px;padding:12px;cursor:pointer;text-align:left;font-family:inherit;transition:all .14s;}
+        .sx-card:hover{border-color:#4A7C59;transform:translateY(-1px);}
+        .sx-card.sel{border-color:#1B3A21;border-width:2px;}
+        .sx-card-top{display:flex;align-items:center;gap:6px;margin-bottom:6px;}
+        .sx-dot{width:8px;height:8px;border-radius:50%;}
+        .sx-card-tipo{font-size:11px;color:#8A938B;text-transform:uppercase;letter-spacing:.03em;}
+        .sx-card-id{font-family:monospace;font-size:13px;font-weight:600;}
+        .sx-card-bot{display:flex;justify-content:space-between;align-items:center;margin-top:8px;}
+        .sx-card-mod{font-size:10px;background:#E8F1EA;color:#1B3A21;border-radius:5px;padding:2px 7px;font-weight:600;}
+        .sx-card-st{font-size:11px;color:#8A938B;}
+        .sx-card-bat{font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;color:#4A7C59;}
 
-        .cr-body { flex: 1; min-height: 0; overflow: hidden; padding: 8px clamp(16px,2.6vw,32px) 18px;
-          display: flex; flex-direction: column; }
+        .sx-rede{display:flex;flex-direction:column;gap:16px;min-height:0;overflow-y:auto;}
+        .sx-flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+        .sx-flow span{color:#8A938B;}
+        .sx-fn{background:#fff;border:1px solid #E5E8E0;border-radius:10px;padding:10px 14px;font-size:13px;text-align:center;display:flex;flex-direction:column;}
+        .sx-fn small{color:#8A938B;font-size:10px;}
+        .sx-fn.ok{border-color:#4A7C59;} .sx-fn.warn{border-color:#C25A1A;}
+        .sx-fcol{display:flex;flex-direction:column;gap:6px;}
+        .sx-net-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;}
+        .sx-net-card{background:#fff;border:1px solid #E5E8E0;border-radius:12px;padding:12px;}
+        .sx-net-id{font-weight:700;margin-bottom:8px;}
+        .sx-net-row{display:flex;justify-content:space-between;font-size:13px;padding:3px 0;}
+        .sx-net-row span{color:#8A938B;}
+        .sx-net-link{font-size:12px;font-weight:500;margin-top:6px;}
 
-        .cr-sala { display: flex; flex-direction: column; min-height: 0; flex: 1; gap: 12px; }
-        .cr-kpis { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; flex-shrink: 0; }
-        .cr-kpi { background: #fff; border: 1px solid #E5E8E0; border-radius: 12px; padding: 12px 14px; }
-        .cr-kpi b { display: block; font-size: 26px; font-weight: 600; line-height: 1;
-          font-variant-numeric: tabular-nums; color: #1B3A21; }
-        .cr-kpi span { font-size: 11px; color: #8A938B; margin-top: 4px; display: block; }
-        .cr-tag-sim { color: #1B3A21 !important; font-size: 20px !important; }
-        .cr-tag-real { color: #C25A1A !important; font-size: 20px !important; }
+        .sx-fusao{display:flex;flex-direction:column;min-height:0;overflow-y:auto;}
+        .sx-chip{background:#fff;border:1px solid #E5E8E0;border-radius:999px;padding:5px 12px;font-size:12px;cursor:pointer;color:#0D1A0F;font-family:inherit;}
+        .sx-chip.on{background:#1B3A21;border-color:#1B3A21;color:#fff;}
+        .sx-fusao-grid{display:grid;grid-template-columns:1fr 1.4fr;gap:14px;}
+        .sx-fcard{background:#fff;border:1px solid #E5E8E0;border-radius:14px;padding:16px;position:relative;}
+        .sx-fbig{font-size:42px;font-weight:600;line-height:1;color:#1B3A21;font-variant-numeric:tabular-nums;}
+        .sx-fbig span{font-size:14px;color:#8A938B;font-weight:400;}
+        .sx-fobar{height:10px;background:#F0F2EC;border-radius:5px;overflow:hidden;margin:12px 0 5px;}
+        .sx-fofill{height:100%;border-radius:5px;transition:width .6s;}
+        .sx-prov{position:absolute;top:14px;right:14px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:6px;}
+        .sx-prov.simulado{background:#E8F1EA;color:#1B3A21;} .sx-prov.real{background:#DEF0E4;color:#1B3A21;}
+        .sx-prov.stale{background:#F5E6D8;color:#C25A1A;} .sx-prov.none{background:#F0F2EC;color:#8A938B;}
+        .sx-fs-t{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#8A938B;margin-bottom:12px;}
+        .sx-fs-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+        .sx-fs-l{width:90px;font-size:13px;}
+        .sx-fs-track{flex:1;height:8px;background:#F0F2EC;border-radius:4px;overflow:hidden;}
+        .sx-fs-bar{height:100%;background:#4A7C59;border-radius:4px;transition:width .6s;}
+        .sx-fs-v{width:90px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums;}
+        .sx-fs-v b{color:#1B3A21;}
+        .sx-fusao-empty{padding:30px 0;text-align:center;}
 
-        .cr-main { flex: 1; min-height: 0; display: grid; grid-template-columns: 1.5fr 1fr; gap: 14px; }
-        .cr-map { background: #fff; border: 1px solid #E5E8E0; border-radius: 14px;
-          position: relative; min-height: 0; overflow: hidden; }
-        .cr-svg { display: block; width: 100%; height: 100%; }
-        .cr-map-legend { position: absolute; bottom: 10px; left: 12px; display: flex; gap: 12px;
-          background: rgba(255,255,255,0.9); padding: 5px 10px; border-radius: 8px; font-size: 11px; color: #6A746B; }
-        .cr-map-legend span { display: flex; align-items: center; gap: 4px; }
-        .cr-map-legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+        .sx-terminal{display:flex;flex-direction:column;min-height:0;flex:1;}
+        .sx-term-out{flex:1;min-height:0;overflow-y:auto;background:#0D1A0F;border-radius:12px 12px 0 0;padding:14px;font-family:monospace;font-size:13px;color:#BFE0E8;}
+        .sx-term-line{white-space:pre-wrap;line-height:1.5;}
+        .sx-term-in{display:flex;align-items:center;gap:8px;background:#0A140C;border-radius:0 0 12px 12px;padding:10px 14px;}
+        .sx-term-in span{color:#6FAF82;font-family:monospace;}
+        .sx-term-in input{flex:1;background:none;border:none;outline:none;color:#fff;font-family:monospace;font-size:13px;}
+        .sx-term-in button{background:#1B3A21;color:#fff;border:none;border-radius:8px;padding:7px 16px;font-size:13px;cursor:pointer;font-family:inherit;}
 
-        .cr-panel { background: #fff; border: 1px solid #E5E8E0; border-radius: 14px;
-          padding: 16px; overflow-y: auto; min-height: 0; }
-        .cr-panel-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
-        .cr-panel-id { font-size: 20px; font-weight: 700; }
-        .cr-panel-desc { font-size: 12px; color: #8A938B; }
-        .cr-prov { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 6px; }
-        .cr-prov-simulado { background: #E8F1EA; color: #1B3A21; }
-        .cr-prov-real { background: #DEF0E4; color: #1B3A21; }
-        .cr-prov-stale { background: #F5E6D8; color: #C25A1A; }
-        .cr-prov-none { background: #F0F2EC; color: #8A938B; }
-        .cr-big { font-size: 46px; font-weight: 600; line-height: 1; color: #1B3A21; font-variant-numeric: tabular-nums; }
-        .cr-big span { font-size: 14px; color: #8A938B; font-weight: 400; }
-        .cr-occ-bar { height: 10px; background: #F0F2EC; border-radius: 5px; overflow: hidden; margin: 12px 0 5px; }
-        .cr-occ-fill { height: 100%; border-radius: 5px; transition: width .6s ease, background .6s; }
-        .cr-occ-label { font-size: 12px; color: #8A938B; }
-        .cr-metrics { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin: 14px 0; }
-        .cr-metrics div { background: #FAFAF7; border-radius: 8px; padding: 8px; text-align: center; }
-        .cr-metrics span { display: block; font-size: 11px; color: #8A938B; }
-        .cr-metrics b { font-size: 18px; font-variant-numeric: tabular-nums; }
-        .cr-fs-title { font-size: 11px; font-weight: 700; text-transform: uppercase;
-          letter-spacing: 0.05em; color: #8A938B; margin: 14px 0 10px; }
-        .cr-fs-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
-        .cr-fs-lbl { width: 95px; font-size: 13px; }
-        .cr-fs-track { flex: 1; height: 8px; background: #F0F2EC; border-radius: 4px; overflow: hidden; }
-        .cr-fs-bar { height: 100%; background: #4A7C59; border-radius: 4px; transition: width .6s ease; }
-        .cr-fs-val { width: 90px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; }
-        .cr-fs-val b { color: #1B3A21; }
-        .cr-hint { font-size: 12px; color: #8A938B; line-height: 1.5; margin-top: 6px; }
-        .cr-empty { padding: 20px 0; }
-        .cr-empty p { margin: 4px 0; }
-        .cr-soft { color: #8A938B; }
-        .cr-cl-sensors { margin-top: 16px; border-top: 1px solid #F0F2EC; padding-top: 12px; }
-        .cr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-        .cr-chip { display: flex; align-items: center; gap: 5px; background: #FAFAF7;
-          border: 1px solid #E5E8E0; border-radius: 999px; padding: 4px 10px; font-size: 12px;
-          cursor: pointer; color: #0D1A0F; font-family: inherit; }
-        .cr-chip:hover { border-color: #4A7C59; }
-        .cr-chip-dot { width: 7px; height: 7px; border-radius: 50%; }
+        .sx-soft{color:#8A938B;}
+        .sx-drawer-bg{position:fixed;inset:0;background:rgba(13,26,15,.3);z-index:50;display:flex;justify-content:flex-end;}
+        .sx-drawer{width:420px;max-width:92vw;background:#fff;height:100%;padding:20px;overflow-y:auto;box-shadow:-8px 0 30px rgba(0,0,0,.12);}
+        .sx-dr-head{display:flex;justify-content:space-between;align-items:flex-start;}
+        .sx-dr-id{font-family:monospace;font-size:15px;font-weight:700;}
+        .sx-dr-tipo{font-size:12px;color:#8A938B;margin-top:2px;}
+        .sx-x{background:none;border:none;font-size:22px;cursor:pointer;color:#8A938B;line-height:1;}
+        .sx-dr-badge{display:inline-block;background:#E8F1EA;color:#1B3A21;border-radius:6px;padding:3px 10px;font-size:12px;font-weight:600;margin-bottom:8px;}
+        .sx-dr-rows{margin-top:14px;}
+        .sx-dr-rows div{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #F0F2EC;font-size:14px;}
+        .sx-dr-rows span{color:#8A938B;}
+        .sx-dr-cmds-t{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#8A938B;margin:18px 0 10px;}
+        .sx-dr-cmds{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+        .sx-dr-cmds button{background:#1B3A21;color:#fff;border:none;border-radius:8px;padding:9px;font-size:13px;cursor:pointer;font-family:inherit;transition:all .14s;}
+        .sx-dr-cmds button:hover{background:#2A5232;}
+        .sx-dr-cmds button.busy{background:#8A938B;}
+        .sx-dr-results{margin-top:16px;}
+        .sx-res{background:#FAFAF7;border:1px solid #F0F2EC;border-radius:10px;padding:12px;margin-bottom:8px;}
+        .sx-res-head{display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;}
+        .sx-res-head b{color:#1B3A21;text-transform:capitalize;}
+        .sx-res-head span{color:#8A938B;}
+        .sx-res-msg{font-size:13px;font-family:monospace;padding:6px 8px;border-radius:6px;}
+        .sx-res-msg.ok{background:#E8F1EA;color:#1B3A21;} .sx-res-msg.fail{background:#F5E6D8;color:#C25A1A;}
+        .sx-res-diag{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;margin-top:4px;}
+        .sx-res-diag div{display:flex;justify-content:space-between;font-size:12px;padding:2px 0;}
+        .sx-res-diag span{color:#8A938B;} .sx-res-diag b{font-variant-numeric:tabular-nums;}
 
-        .cr-rede { display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow-y: auto; }
-        .cr-flow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-        .cr-flow span { color: #8A938B; }
-        .cr-fnode { background: #fff; border: 1px solid #E5E8E0; border-radius: 10px;
-          padding: 10px 14px; font-size: 13px; text-align: center; }
-        .cr-fnode small { color: #8A938B; }
-        .cr-ok { border-color: #4A7C59; } .cr-warn { border-color: #C25A1A; }
-        .cr-fcol { display: flex; flex-direction: column; gap: 6px; }
-        .cr-net-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 10px; }
-        .cr-net-card { background: #fff; border: 1px solid #E5E8E0; border-radius: 12px; padding: 12px; cursor: pointer; }
-        .cr-net-card:hover { border-color: #4A7C59; }
-        .cr-net-id { font-weight: 700; }
-        .cr-net-meta { font-size: 12px; color: #8A938B; margin: 4px 0; }
-        .cr-net-link { font-size: 12px; font-weight: 500; }
-
-        .cr-manut { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
-        .cr-manut-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(210px,1fr)); gap: 12px; overflow-y: auto; }
-        .cr-manut-card { background: #fff; border: 1px solid #E5E8E0; border-radius: 12px; padding: 14px; }
-        .cr-manut-id { font-weight: 700; margin-bottom: 10px; }
-        .cr-manut-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-        .cr-manut-btns button { background: #FAFAF7; border: 1px solid #E5E8E0; border-radius: 8px;
-          padding: 7px; font-size: 12px; cursor: pointer; color: #0D1A0F; font-family: inherit; }
-        .cr-manut-btns button:hover { border-color: #4A7C59; background: #fff; }
-        .cr-log { background: #0D1A0F; border-radius: 12px; padding: 14px; max-height: 180px; overflow-y: auto; }
-        .cr-log-title { font-size: 11px; text-transform: uppercase; color: #6FAF82; margin-bottom: 8px; }
-        .cr-log-line { font-family: monospace; font-size: 12px; color: #BFE0E8; padding: 2px 0; }
-
-        .cr-drawer-bg { position: fixed; inset: 0; background: rgba(13,26,15,0.3); z-index: 50;
-          display: flex; justify-content: flex-end; }
-        .cr-drawer { width: 360px; max-width: 90vw; background: #fff; height: 100%; padding: 20px;
-          overflow-y: auto; box-shadow: -8px 0 30px rgba(0,0,0,0.12); }
-        .cr-drawer-head { display: flex; justify-content: space-between; align-items: center; }
-        .cr-x { background: none; border: none; font-size: 18px; cursor: pointer; color: #8A938B; }
-        .cr-mono { font-family: monospace; font-size: 14px; font-weight: 600; }
-        .cr-badge { display: inline-block; margin-top: 10px; background: #E8F1EA; color: #1B3A21;
-          border-radius: 6px; padding: 3px 10px; font-size: 12px; font-weight: 600; }
-        .cr-drawer-rows { margin-top: 16px; }
-        .cr-drawer-rows div { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid #F0F2EC; font-size: 14px; }
-        .cr-drawer-rows span { color: #8A938B; }
-        .cr-drawer-cmds { display: flex; gap: 8px; margin-top: 16px; }
-        .cr-drawer-cmds button { flex: 1; background: #1B3A21; color: #fff; border: none;
-          border-radius: 8px; padding: 9px; font-size: 13px; cursor: pointer; font-family: inherit; }
-
-        @media (max-width: 820px) {
-          .cr-main { grid-template-columns: 1fr; }
-          .cr-kpis { grid-template-columns: repeat(2,1fr); }
-        }
+        @media (max-width:820px){.sx-kpis{grid-template-columns:repeat(2,1fr);}.sx-fusao-grid{grid-template-columns:1fr;}}
       `}</style>
     </div>
   );
