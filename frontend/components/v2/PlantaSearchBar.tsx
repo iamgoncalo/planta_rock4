@@ -14,6 +14,19 @@ export default function PlantaSearchBar() {
   const [recording, setRecording] = useState(false);
   const [locBusy, setLocBusy] = useState(false);
   const [pendingFile, setPendingFile] = useState<{ name: string; size: number } | null>(null);
+  const [minimized, setMinimized] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = window.localStorage.getItem('planta-bar-min');
+    if (saved === '1') { setMinimized(true); return; }
+    if (saved === '0') { setMinimized(false); return; }
+    // sem preferencia guardada: no twin comeca minimizada
+    setMinimized(!!(pathname && pathname.startsWith('/v2/twin')));
+  }, [pathname]);
+  const toggleMin = (v: boolean) => {
+    setMinimized(v);
+    try { window.localStorage.setItem('planta-bar-min', v ? '1' : '0'); } catch {}
+  };
   const fileRef = useRef<HTMLInputElement>(null);
   const recogRef = useRef<any>(null);
 
@@ -142,17 +155,53 @@ export default function PlantaSearchBar() {
   // No /v2/chat o input proprio do chat substitui esta barra
   if (pathname && pathname.startsWith('/v2/chat')) return null;
 
+  // Minimizada: pilula no canto inferior direito
+  if (minimized) {
+    return (
+      <button
+        className="tw-bar-pill"
+        onClick={() => toggleMin(false)}
+        aria-label="Abrir Pergunta a Planta"
+        style={{
+          position: 'fixed', bottom: 18, right: 20, zIndex: 60,
+          display: 'inline-flex', alignItems: 'center', gap: 9,
+          background: '#1B3A21', color: '#fff', border: 'none',
+          borderRadius: 999, padding: '11px 16px 11px 13px', cursor: 'pointer',
+          boxShadow: '0 6px 22px rgba(13,26,15,0.22)', fontFamily: 'inherit',
+          fontSize: 14, fontWeight: 600,
+        }}
+      >
+        <img src="/planta-logo.svg" alt="" width={20} height={20} style={{ filter: 'brightness(0) invert(1)' }} />
+        Pergunta à Planta
+      </button>
+    );
+  }
+
   return (
     <div
       style={{
         position: 'fixed',
-        bottom: 22,
+        bottom: 18,
         left: '50%',
         transform: 'translateX(-50%)',
         width: 'min(720px, calc(100% - 32px))',
-        zIndex: 99,
+        zIndex: 60,
       }}
     >
+      <button
+        className="tw-bar-min-btn"
+        onClick={() => toggleMin(true)}
+        aria-label="Minimizar"
+        style={{
+          position: 'absolute', top: -14, right: 6, zIndex: 2,
+          width: 28, height: 28, borderRadius: '50%', cursor: 'pointer',
+          background: '#fff', border: '1px solid #E5E8E0', color: '#1B3A21',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 2px 8px rgba(13,26,15,0.10)', padding: 0,
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+      </button>
       {/* Chip de imagem anexada */}
       {pendingFile && (
         <div
