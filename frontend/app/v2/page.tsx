@@ -230,8 +230,27 @@ export default function HomePage() {
           flexWrap: 'wrap',
         }}
       >
-        <div className="mono" style={{ fontSize: 10.5, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
-          FCT 2025.00020.AIVLAB.DEUCALION
+        {/* Tagline editorial — alternativas comentadas para troca rapida */}
+        {/* "Holding it in is so 2024." */}
+        {/* "When nature calls, we answer first." */}
+        <div style={{
+          fontSize: 'clamp(12px, 1.3vw, 14px)',
+          color: 'var(--muted)',
+          fontStyle: 'italic',
+          letterSpacing: '-0.005em',
+          maxWidth: '60ch',
+          lineHeight: 1.4,
+        }}>
+          Someone has to take care of your needs.
+          <span style={{
+            fontFamily: 'var(--font-mono)',
+            fontStyle: 'normal',
+            fontSize: '0.78em',
+            letterSpacing: '0.12em',
+            marginLeft: 10,
+            color: 'var(--faint)',
+            textTransform: 'uppercase',
+          }}>— Planta</span>
         </div>
         <div style={{ display: 'flex', gap: 18, fontSize: 12 }}>
           <Link href="/v2/twin" style={{ color: 'var(--muted)' }}>Digital twin →</Link>
