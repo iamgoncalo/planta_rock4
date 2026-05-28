@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     port: int = 8000
     simulation_active: bool = True
 
+    # Ambiente de dados: simulated | real | auto
+    data_mode: str = "simulated"
+    real_data_ttl_s: int = 90
+
     # SCOR — names only, never values here
     scor_token: str = ""
     scor_endpoint: str = ""
