@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLive } from './LiveContext';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://api.plantarockinrio.com';
 const RECENTS_KEY = 'planta-recent-paths-v1';
@@ -49,8 +50,8 @@ export default function TopBar() {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [recents, setRecents] = useState<string[]>([]);
-  const [livePeople, setLivePeople] = useState<number | null>(null);
-  const [liveOcc, setLiveOcc] = useState<number | null>(null);
+  // KPIs live via useLive() — single source of truth do v2/layout LiveProvider
+  const { totalPessoas: livePeople, avgOcc: liveOcc, connection } = useLive();
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -90,26 +91,6 @@ export default function TopBar() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    const fetchNow = async () => {
-      try {
-        const r = await fetch(`${API_BASE}/api/v1/telemetry/clusters/now`);
-        if (!r.ok || cancelled) return;
-        const j = await r.json();
-        if (cancelled) return;
-        const clusters = j.clusters || [];
-        const total = clusters.reduce((a: number, c: any) => a + (c.params?.pessoas_estimadas || 0), 0);
-        setLivePeople(total);
-        setLiveOcc(j.kpis?.kpi_02 ?? null);
-      } catch {}
-    };
-    fetchNow();
-    const iv = setInterval(fetchNow, 4000);
-    return () => { cancelled = true; clearInterval(iv); };
   }, [open]);
 
   const isActive = useCallback((href: string) =>
@@ -381,7 +362,7 @@ export default function TopBar() {
                 fontFamily: 'var(--font-display)',
                 fontVariantNumeric: 'tabular-nums',
               }}>
-                {livePeople != null ? livePeople.toLocaleString('pt-PT') : '—'}
+                {livePeople > 0 ? livePeople.toLocaleString('pt-PT') : '—'}
               </div>
               <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2, fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                 pessoas
@@ -396,14 +377,14 @@ export default function TopBar() {
                 fontFamily: 'var(--font-display)',
                 fontVariantNumeric: 'tabular-nums',
               }}>
-                {liveOcc != null ? `${liveOcc.toFixed(0)}%` : '—'}
+                {liveOcc > 0 ? `${liveOcc.toFixed(0)}%` : '—'}
               </div>
               <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2, fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                 ocup
               </div>
             </div>
             <div style={{ marginLeft: 'auto' }}>
-              <span className="pill pill-live" style={{ fontSize: 9 }}>LIVE</span>
+              <span className={connection === "sse" ? "pill pill-live" : "pill pill-sim"} style={{ fontSize: 9 }}>{connection === "sse" ? "LIVE" : connection === "polling" ? "2s" : "..."}</span>
             </div>
           </div>
         </div>

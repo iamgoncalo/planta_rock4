@@ -28,6 +28,7 @@ agregando sections (WC-01_M + WC-01_F) num cluster_id "wc-01".
 from __future__ import annotations
 
 import time
+import random  # v18-jitter
 from statistics import mean
 from typing import Any
 
@@ -85,6 +86,8 @@ def build_cluster_payload(state: dict[str, Any] | None) -> list[dict[str, Any]]:
         a = agg[cluster_id]
         a["section_count"] += 1
         occ_pct = float(sec.get("ocupacao_pct", 0))
+        # v18-jitter: +/- 3% para evitar steady state visual
+        occ_pct = max(0.0, min(100.0, occ_pct * (1 + random.uniform(-0.03, 0.03))))
         a["occ_list"].append(occ_pct)
         # Pessoas estimadas a partir da ocupação × capacidade
         cap = CLUSTER_CAPACITY.get(cluster_id, 100)

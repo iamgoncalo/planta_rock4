@@ -1,81 +1,25 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://api.plantarockinrio.com';
+import { useLive } from '@/components/v2/LiveContext';
 
 const CLUSTER_ORDER = ['wc-01', 'wc-02', 'wc-03', 'wc-04', 'wc-05', 'wc-06', 'wc-07', 'wc-08'];
 const UNISEX = new Set(['wc-05', 'wc-06']);
 
-interface ClusterPayload {
-  cluster_id: string;
-  ts: number;
-  params: {
-    pessoas_estimadas: number;
-    ocupacao_instantanea: number;
-    is_unissex?: boolean;
-    capacidade_total?: number;
-    fila_atual?: number;
-    estado_sensor?: string;
-  };
-}
-
-interface Snapshot {
-  clusters: ClusterPayload[];
-  kpis: { kpi_01: number; kpi_02: number; kpi_03: number; kpi_04: number };
-}
-
 export default function HomePage() {
-  const [snap, setSnap] = useState<Snapshot | null>(null);
-  const [streaming, setStreaming] = useState(false);
-  const [tickCount, setTickCount] = useState(0);
+  const { snapshot, connection, tick, totalPessoas, avgOcc, criticos } = useLive();
 
-  useEffect(() => {
-    let es: EventSource | null = null;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const connect = () => {
-      try {
-        es = new EventSource(`${API_BASE}/api/v1/telemetry/clusters/stream`);
-        es.onopen = () => setStreaming(true);
-        es.onmessage = (ev) => {
-          try {
-            const data: Snapshot = JSON.parse(ev.data);
-            setSnap(data);
-            setTickCount((c) => c + 1);
-          } catch {}
-        };
-        es.onerror = () => {
-          setStreaming(false);
-          if (es) es.close();
-          retryTimer = setTimeout(connect, 3000);
-        };
-      } catch {}
-    };
-    connect();
-    return () => {
-      if (es) es.close();
-      if (retryTimer) clearTimeout(retryTimer);
-      setStreaming(false);
-    };
-  }, []);
-
-  // Sort clusters
   const clusters = (() => {
-    if (!snap) return [];
-    const m = new Map(snap.clusters.map((c) => [c.cluster_id, c]));
-    return CLUSTER_ORDER.map((id) => m.get(id)).filter(Boolean) as ClusterPayload[];
+    if (!snapshot) return [];
+    const m = new Map(snapshot.clusters.map((c) => [c.cluster_id, c]));
+    return CLUSTER_ORDER.map((id) => m.get(id)).filter(Boolean) as NonNullable<ReturnType<typeof m.get>>[];
   })();
 
-  const totalPessoas = clusters.reduce((a, c) => a + (c.params.pessoas_estimadas || 0), 0);
-  const avgOcc = snap?.kpis?.kpi_02 ?? 0;
-  const flowIdx = snap?.kpis?.kpi_01 ?? 0;
-  const criticos = snap?.kpis?.kpi_03 ?? 0;
+  const flowIdx = snapshot?.kpis?.kpi_01 ?? 0;
+  const isStreaming = connection === 'sse';
 
   return (
     <div className="page-full">
-      {/* HERO — números editoriais grandes */}
       <section style={{ marginBottom: 'clamp(20px, 3vw, 36px)' }}>
         <div
           style={{
@@ -103,12 +47,13 @@ export default function HomePage() {
               Em tempo real.
             </h1>
           </div>
-          <span className={streaming ? 'pill pill-live' : 'pill pill-sim'}>
-            {streaming ? 'STREAM AO SEGUNDO' : 'A LIGAR'}
+          <span className={isStreaming ? 'pill pill-live' : 'pill pill-sim'}>
+            {connection === 'sse' ? 'STREAM AO SEGUNDO' :
+             connection === 'polling' ? 'FALLBACK · 2s' :
+             connection === 'offline' ? 'OFFLINE' : 'A LIGAR'}
           </span>
         </div>
 
-        {/* 4 KPIs grandes editoriais */}
         <div
           style={{
             display: 'grid',
@@ -125,7 +70,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* 8 CLUSTERS — grid 4×2 compacto */}
       <section style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
         <div
           style={{
@@ -140,14 +84,11 @@ export default function HomePage() {
             className="mono"
             style={{ fontSize: 11, color: 'var(--faint)' }}
           >
-            tick #{tickCount}
+            tick #{tick}
           </span>
         </div>
 
-        <div
-          className="grid grid-8"
-          style={{ alignContent: 'start' }}
-        >
+        <div className="grid grid-8" style={{ alignContent: 'start' }}>
           {clusters.length === 0 &&
             CLUSTER_ORDER.map((id) => (
               <div
@@ -237,7 +178,6 @@ export default function HomePage() {
                   </div>
                 </div>
 
-                {/* Mini bar */}
                 <div
                   style={{
                     height: 4,
@@ -276,7 +216,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Footer dicreto com links */}
       <footer
         style={{
           marginTop: 'clamp(16px, 2vw, 28px)',
