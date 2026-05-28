@@ -29,20 +29,38 @@ interface Conversation {
    ROUTING LOCAL · filas (determinístico, resposta instantânea)
    ════════════════════════════════════════════════════════════════════ */
 
-const VENUE_CENTROID = { lat: 38.7636, lng: -9.0956 };
-const MPDLAT = 111320;
-const MPDLNG = 111320 * Math.cos((VENUE_CENTROID.lat * Math.PI) / 180);
+// Âncora única do recinto (igual a app/clusters_geo.py — fonte de verdade).
+const VENUE_CENTROID = { lat: 38.78145, lng: -9.0943 };
 
-const CLUSTERS: Record<string, { x_m: number; y_m: number; zone: string }> = {
-  'wc-01': { x_m: -380, y_m: 120, zone: 'Portal Norte' },
-  'wc-02': { x_m: 80, y_m: -30, zone: 'Central' },
-  'wc-03': { x_m: -100, y_m: 80, zone: 'Portão' },
-  'wc-04': { x_m: -200, y_m: 200, zone: 'Cumeada' },
-  'wc-05': { x_m: 250, y_m: 180, zone: 'Portão · unissex' },
-  'wc-06': { x_m: -50, y_m: 250, zone: 'Central · unissex' },
-  'wc-07': { x_m: -300, y_m: -80, zone: 'Lockers' },
-  'wc-08': { x_m: 350, y_m: 300, zone: 'Exterior' },
+// Posições por cluster vindas de /api/v1/clusters/geo (GPS).
+// Arranca com FALLBACK (mesmas coordenadas da fonte); é substituído pela
+// fetch da geo ao carregar — alinhado com /twin e o backend.
+interface ClusterGeo { lat: number; lng: number; zone: string }
+const CLUSTERS: Record<string, ClusterGeo> = {
+  'wc-01': { lat: 38.78439, lng: -9.09182, zone: 'Portal Norte' },
+  'wc-02': { lat: 38.78402, lng: -9.09134, zone: 'Central' },
+  'wc-03': { lat: 38.7832, lng: -9.091209, zone: 'Portão' },
+  'wc-04': { lat: 38.78404, lng: -9.09086, zone: 'Cumeada' },
+  'wc-05': { lat: 38.78359, lng: -9.09114, zone: 'Portão · unissex' },
+  'wc-06': { lat: 38.78219, lng: -9.093601, zone: 'Central · unissex' },
+  'wc-07': { lat: 38.78278, lng: -9.09167, zone: 'Lockers' },
+  'wc-08': { lat: 38.78145, lng: -9.0943, zone: 'Exterior' },
 };
+
+// Preenche CLUSTERS a partir da fonte de verdade (chamado uma vez ao iniciar).
+function applyGeo(payload: any) {
+  if (!payload?.clusters?.length) return;
+  const zoneFor = (id: string, desc: string, unisex: boolean) => {
+    if (CLUSTERS[id]?.zone) return CLUSTERS[id].zone;
+    return unisex ? `${desc} · unissexo` : desc;
+  };
+  for (const c of payload.clusters) {
+    const id = String(c.id).toLowerCase();
+    if (typeof c.gps_lat === 'number' && typeof c.gps_lon === 'number') {
+      CLUSTERS[id] = { lat: c.gps_lat, lng: c.gps_lon, zone: zoneFor(id, c.desc ?? '', !!c.unisex) };
+    }
+  }
+}
 
 const COORDS_REGEX = /(-?\d{1,3}\.\d{2,8})\s*,\s*(-?\d{1,3}\.\d{2,8})/;
 
@@ -56,7 +74,7 @@ function detectCoords(text: string): { lat: number; lng: number } | null {
 }
 function clusterPos(cid: string) {
   const c = CLUSTERS[cid];
-  return { lat: VENUE_CENTROID.lat + c.y_m / MPDLAT, lng: VENUE_CENTROID.lng + c.x_m / MPDLNG };
+  return { lat: c.lat, lng: c.lng };
 }
 function haversine(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
   const R = 6371000;
@@ -306,6 +324,16 @@ function Chat2Inner() {
     const list = loadConversations();
     setConversations(list);
     if (list.length) setActiveId(list[0].id);
+  }, []);
+
+  // Coordenadas vêm da fonte de verdade (igual ao /twin). Se falhar, fica o fallback.
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/v1/clusters/geo`, { cache: 'no-store' });
+        if (r.ok) applyGeo(await r.json());
+      } catch { /* mantém fallback */ }
+    })();
   }, []);
 
   useEffect(() => {
