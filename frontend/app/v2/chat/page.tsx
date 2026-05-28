@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://api.plantarockinrio.com';
@@ -32,7 +32,8 @@ function saveHistory(msgs: Msg[]) {
   } catch {}
 }
 
-export default function ChatPage() {
+// Inner component que USA useSearchParams — tem de estar dentro de Suspense
+function ChatInner() {
   const router = useRouter();
   const params = useSearchParams();
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -41,25 +42,21 @@ export default function ChatPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const handledQuery = useRef<string | null>(null);
 
-  // Load history on mount
   useEffect(() => {
     setMessages(loadHistory());
   }, []);
 
-  // Auto-scroll
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
 
-  // Auto-send da ?q=
   useEffect(() => {
     const q = params?.get('q');
     if (q && handledQuery.current !== q) {
       handledQuery.current = q;
       send(q);
-      // limpa o querystring sem reload
       router.replace('/v2/chat', { scroll: false });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -121,7 +118,6 @@ export default function ChatPage() {
 
   return (
     <div className="page" style={{ maxWidth: 820, paddingBottom: 32 }}>
-      {/* Header */}
       <div
         style={{
           display: 'flex',
@@ -165,7 +161,6 @@ export default function ChatPage() {
         )}
       </div>
 
-      {/* Welcome quando vazio */}
       {messages.length === 0 && (
         <div style={{ padding: '40px 0 20px', color: 'var(--muted)' }}>
           <p style={{ fontSize: 17, lineHeight: 1.55, maxWidth: 560, marginBottom: 18 }}>
@@ -200,7 +195,6 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* Messages */}
       <div
         ref={scrollRef}
         style={{
@@ -256,5 +250,20 @@ export default function ChatPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+// Outer component — Suspense wrapper exigido pelo Next.js 14 quando se usa useSearchParams
+export default function ChatPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="page" style={{ maxWidth: 820 }}>
+          <div className="section-label">Chat · a carregar...</div>
+        </div>
+      }
+    >
+      <ChatInner />
+    </Suspense>
   );
 }
