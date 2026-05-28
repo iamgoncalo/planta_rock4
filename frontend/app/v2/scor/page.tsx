@@ -176,6 +176,56 @@ export default function ScorPage() {
         }}>{error}</div>
       )}
 
+      {/* TABELA DOS 4 KPIs — o que se envia ao SCOR */}
+      {snap && (
+        <div style={{
+          background: 'white',
+          border: '1px solid var(--color-border, #E5E8E0)',
+          borderRadius: 12,
+          padding: '14px 16px',
+          marginBottom: 16,
+        }}>
+          <div style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.06em',
+            textTransform: 'uppercase', color: 'var(--color-muted, #6B7280)',
+            marginBottom: 10,
+          }}>
+            KPIs enviados ao SCOR
+          </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+            gap: 10,
+          }}>
+            {[
+              { key: 'kpi_01_value', label: 'Flow Index', sub: '0–100', val: String(snap.kpis.kpi_01), crit: false },
+              { key: 'kpi_02_value', label: 'Ocupacao media', sub: '% WC', val: snap.kpis.kpi_02 + '%', crit: false },
+              { key: 'kpi_03_value', label: 'Alertas criticos', sub: 'activos', val: String(snap.kpis.kpi_03), crit: snap.kpis.kpi_03 > 0 },
+              { key: 'kpi_04_value', label: 'Pessoas redirigidas', sub: 'no dia', val: String(snap.kpis.kpi_04), crit: false },
+            ].map((k) => (
+              <div key={k.key} style={{
+                background: 'var(--color-paper, #FAFAF7)',
+                border: '1px solid var(--color-border, #E5E8E0)',
+                borderRadius: 10,
+                padding: '10px 12px',
+              }}>
+                <div style={{
+                  fontSize: 26, fontWeight: 600, lineHeight: 1.1,
+                  fontVariantNumeric: 'tabular-nums',
+                  color: k.crit ? '#C25A1A' : 'var(--color-ink, #0D1A0F)',
+                }}>{k.val}</div>
+                <div style={{ fontSize: 12, color: 'var(--color-ink, #0D1A0F)', marginTop: 4, fontWeight: 500 }}>
+                  {k.label} <span style={{ color: 'var(--color-muted, #6B7280)', fontWeight: 400 }}>· {k.sub}</span>
+                </div>
+                <div className="mono" style={{ fontSize: 10, color: 'var(--color-muted, #6B7280)', marginTop: 2 }}>
+                  {k.key}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* GRID DE 8 CLUSTERS */}
       <div style={{
         display: 'grid',
