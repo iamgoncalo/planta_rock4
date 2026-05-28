@@ -191,16 +191,18 @@ export default function PlantaSearchBar() {
       <button
         className="tw-bar-min-btn"
         onClick={() => toggleMin(true)}
-        aria-label="Minimizar"
+        aria-label="Fechar"
         style={{
-          position: 'absolute', top: -14, right: 6, zIndex: 2,
-          width: 28, height: 28, borderRadius: '50%', cursor: 'pointer',
-          background: '#fff', border: '1px solid #E5E8E0', color: '#1B3A21',
+          position: 'absolute', top: -44, right: 4, zIndex: 2,
+          width: 34, height: 34, borderRadius: '50%', cursor: 'pointer',
+          background: 'transparent', border: 'none', color: '#8A938B',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 2px 8px rgba(13,26,15,0.10)', padding: 0,
+          padding: 0, transition: 'color 0.15s',
         }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#1B3A21'; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = '#8A938B'; }}
       >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="6" y1="6" x2="18" y2="18" /><line x1="18" y1="6" x2="6" y2="18" /></svg>
       </button>
       {/* Chip de imagem anexada */}
       {pendingFile && (
