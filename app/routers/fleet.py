@@ -1,63 +1,33 @@
 """
-PlantaOS — Frota de sensores + fusao. Endpoints de leitura.
-  GET /api/v1/fleet            — todos os sensores com estado + bateria estimada
-  GET /api/v1/fleet/summary    — contagens por tipo e por cluster
-  GET /api/v1/fusion/{cluster} — calculo de fusao ao vivo para um cluster
-Estado: deriva do device_cache (MQTT) quando ha; senao 'planned'.
-Bateria: estimada pela curva da powerbank (Anker 20Ah) + uptime, ate o device reportar.
+PlantaOS — Frota de sensores + fusao, com MODO sim/real e PROVENIENCIA.
+  GET /api/v1/fleet?mode=sim|real        — sensores (sim da vida; real e carimbado)
+  GET /api/v1/fleet/summary              — contagens
+  GET /api/v1/fleet/mode                 — modo atual
+  POST /api/v1/fleet/mode?mode=sim|real  — trocar modo (interruptor global)
+  GET /api/v1/fusion/{cluster}?mode=...  — fusao (sim ou real carimbado)
+
+Principio: simulado e SEMPRE rotulado; real so conta se um sensor enviou < ttl.
 """
 from __future__ import annotations
 import time
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app import sensors_registry as reg
 from app.services import fusion as fus
+from app.services import fleet_sim as sim
 
 router = APIRouter(prefix="/api/v1", tags=["fleet"])
 
-# Anker Zolo 20Ah: ~17000 mAh uteis @5V
 _BAT_USABLE_MAH = 17000.0
+_MODE = {"mode": "sim"}  # default: simulacao (da vida a consola)
 
 
-def _device_status(cluster_id, device_cache):
-    """Estado real do LilyGo do cluster a partir do device_cache (MQTT)."""
-    if not cluster_id:
-        return None, None
-    cu = cluster_id.upper()
-    cached = device_cache.get(cu, {})
-    last_seen = cached.get("last_seen")
-    if not last_seen:
-        return None, None
-    age = time.time() - last_seen
-    if age < 15:
-        st = "online"
-    elif age < 60:
-        st = "degraded"
-    else:
-        st = "offline"
-    return st, cached
-
-
-def _battery_pct(sensor, cached):
-    """Bateria: real se o device reportar; senao estimada pela curva + uptime."""
-    prof = sensor.get("power_profile", {})
-    if prof.get("battery") not in ("powerbank",):
-        return None  # eletrico/poe/mains nao tem bateria
-    # 1) real do device?
-    if cached:
-        status = cached.get("status", {}) or {}
-        for k in ("battery_pct", "bateria", "batt"):
-            if k in status:
-                return {"pct": int(status[k]), "fonte": "real"}
-    # 2) estimada: uptime vs autonomia do perfil
-    ma = prof.get("ma", 0) or 1
-    autonomia_h = _BAT_USABLE_MAH / ma
-    uptime_h = 0.0
-    if cached:
-        status = cached.get("status", {}) or {}
-        uptime_h = float(status.get("uptime_s", 0)) / 3600.0
-    pct = max(0, min(100, int(round((1 - uptime_h / autonomia_h) * 100))))
-    return {"pct": pct, "fonte": "estimada", "autonomia_h": round(autonomia_h)}
+def _ttl() -> float:
+    try:
+        from app.config import get_settings
+        return float(get_settings().real_data_ttl_s)
+    except Exception:
+        return 90.0
 
 
 def _safe_cache():
@@ -68,66 +38,135 @@ def _safe_cache():
         return {}
 
 
+def _ingest():
+    try:
+        from app.services import ingest_store
+        return ingest_store
+    except Exception:
+        return None
+
+
+def _real_device_status(cluster_id, device_cache):
+    if not cluster_id:
+        return None, None
+    cu = cluster_id.upper()
+    cached = device_cache.get(cu, {})
+    last_seen = cached.get("last_seen")
+    if not last_seen:
+        return None, None
+    age = time.time() - last_seen
+    st = "online" if age < 15 else "degraded" if age < 60 else "offline"
+    return st, cached
+
+
+def _battery_real(sensor, cached):
+    prof = sensor.get("power_profile", {})
+    if prof.get("battery") != "powerbank":
+        return None
+    if cached:
+        status = cached.get("status", {}) or {}
+        for k in ("battery_pct", "bateria", "batt"):
+            if k in status:
+                return {"pct": int(status[k]), "fonte": "real"}
+        ma = prof.get("ma", 0) or 1
+        uptime_h = float(status.get("uptime_s", 0)) / 3600.0
+        pct = max(0, min(100, int(round((1 - uptime_h/(_BAT_USABLE_MAH/ma))*100))))
+        return {"pct": pct, "fonte": "estimada"}
+    return None
+
+
 @router.get("/fleet")
-async def get_fleet():
+async def get_fleet(mode: str = Query(default=None)):
+    m = mode or _MODE["mode"]
     fleet = reg.build_fleet()
-    device_cache = _safe_cache()
     out = []
-    for s in fleet:
-        st, cached = _device_status(s.get("cluster"), device_cache)
-        # IR herda do LilyGo pai
-        if s["tipo"] == "ir" and s.get("parent"):
-            pst, pc = _device_status(s.get("cluster"), device_cache)
-            st = pst
-            cached = pc
-        item = dict(s)
-        item["status"] = st or s.get("status", "planned")
-        bat = _battery_pct(s, cached)
-        if bat:
-            item["battery"] = bat
-        out.append(item)
-    return {"total": len(out), "ts": time.time(), "sensors": out}
+    if m == "sim":
+        t = time.time()
+        for s in fleet:
+            st, bat = sim.simulate_sensor_status(s, t)
+            item = dict(s)
+            item["status"] = st
+            item["origem"] = "simulado"
+            if bat is not None:
+                item["battery"] = {"pct": bat, "fonte": "simulado"}
+            out.append(item)
+    else:  # real
+        device_cache = _safe_cache()
+        for s in fleet:
+            st, cached = _real_device_status(s.get("cluster"), device_cache)
+            item = dict(s)
+            item["status"] = st or "planned"
+            item["origem"] = "real" if st else "sem-dados"
+            bat = _battery_real(s, cached)
+            if bat:
+                item["battery"] = bat
+            out.append(item)
+    return {"total": len(out), "ts": time.time(), "mode": m, "sensors": out}
 
 
 @router.get("/fleet/summary")
 async def get_fleet_summary():
-    fleet = reg.build_fleet()
-    return reg.fleet_summary(fleet)
+    return reg.fleet_summary(reg.build_fleet())
+
+
+@router.get("/fleet/mode")
+async def get_mode():
+    return {"mode": _MODE["mode"]}
+
+
+@router.post("/fleet/mode")
+async def set_mode(mode: str = Query(...)):
+    if mode not in ("sim", "real"):
+        raise HTTPException(400, "mode deve ser 'sim' ou 'real'")
+    _MODE["mode"] = mode
+    return {"mode": mode}
 
 
 @router.get("/fusion/{cluster_id}")
-async def get_fusion(cluster_id: str):
+async def get_fusion(cluster_id: str, mode: str = Query(default=None)):
     cid = cluster_id.lower()
     if cid not in reg.CLUSTER_CAP:
         raise HTTPException(404, f"cluster desconhecido: {cluster_id}")
+    m = mode or _MODE["mode"]
     cap = reg.CLUSTER_CAP[cid]
     fleet = reg.build_fleet()
     sources = reg.fusion_sources(cid, fleet)
 
-    # Tentar dados reais do ingest_store; senao None (fusao devolve sem-dados)
     cam = ir_in = ir_out = wifi = None
-    try:
-        from app.services import ingest_store
-        rec = ingest_store.get(cid)
-        if rec:
-            p = rec.get("params", {})
-            wifi = p.get("telemoveis_detectados")
-            ir_in = p.get("entradas_ir")
-            ir_out = p.get("saidas_ir")
-            cam = p.get("pessoas_estimadas")  # placeholder ate camara dedicada
-    except Exception:
-        pass
+    data_source = "sem-dados"
+
+    if m == "sim":
+        p = sim.simulate_cluster_params(cid)
+        cam = p["pessoas_estimadas"]
+        wifi = p["telemoveis_detectados"]
+        ir_in, ir_out = p["entradas_ir"], p["saidas_ir"]
+        data_source = "simulado"
+    else:  # real
+        ist = _ingest()
+        if ist:
+            rec = ist.get(cid)
+            fresh = ist.freshness(cid, _ttl())
+            if rec and fresh == "real":
+                p = rec.get("params", {})
+                wifi = p.get("telemoveis_detectados")
+                ir_in = p.get("entradas_ir")
+                ir_out = p.get("saidas_ir")
+                cam = p.get("pessoas_estimadas")
+                data_source = "real"
+            else:
+                data_source = fresh  # stale | none
 
     result = fus.fuse_cluster(
-        cap_inside=cap["masc"] + cap["fem"],
-        espera_max=cap["espera"],
+        cap_inside=cap["m"] + cap["f"] if "m" in cap else cap["masc"] + cap["fem"],
+        espera_max=cap.get("espera", cap.get("esp", 100)),
         sources_present=sources,
-        camera_people=cam,
-        ir_in=ir_in, ir_out=ir_out,
+        camera_people=cam, ir_in=ir_in, ir_out=ir_out,
         wifi_devices=wifi,
-        wifi_factor=1.8 if cap["unisex"] else 2.5,
+        wifi_factor=1.8 if cap.get("unisex", cap.get("uni", False)) else 2.5,
     )
     result["cluster_id"] = cid
+    result["mode"] = m
+    result["data_source"] = data_source
     result["fontes_disponiveis"] = sources
-    result["capacidade_dentro"] = cap["masc"] + cap["fem"]
+    result["capacidade_dentro"] = cap["m"] + cap["f"] if "m" in cap else cap["masc"] + cap["fem"]
     return result
