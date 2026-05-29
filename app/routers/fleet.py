@@ -1,9 +1,11 @@
 """
-PlantaOS — Router da frota v4.
-Em SIM: TUDO enriquecido pelo simulador (ignora status 'planned' do registry —
-em simulacao todos os sensores estao "presentes"). Em REAL: respeita planned
-(sensores fisicamente nao instalados ficam 'planned'). Bateria sempre presente
-em lilygos e cameras em sim. Inclui /fleet, /fleet/summary, /fleet/mode.
+PlantaOS — Router da frota v5. DISTINCAO HONESTA real vs simulado.
+Cada sensor decide a sua origem SOZINHO:
+  - 'real-vivo'  : ha pacote no ingest_store ha <15s (dado verdadeiro)
+  - 'real-mudo'  : devia transmitir mas nao ha pacote (>60s ou nunca) — em modo real
+  - 'simulado'   : nao ha pacote real E o ambiente esta em modo sim
+HIBRIDO: mesmo em modo 'sim', se um sensor real transmitir, aparece como REAL
+no meio dos simulados. Nunca finge que um simulado e real.
 """
 from __future__ import annotations
 import time
@@ -20,9 +22,47 @@ except Exception:
 router = APIRouter(prefix="/api/v1", tags=["fleet"])
 _MODE = "sim"
 
+REAL_VIVO_S = 15    # transmitiu ha menos disto = vivo
+REAL_MUDO_S = 60    # entre vivo e isto = instavel; acima = mudo
 
-def _enriquece_sim(s: dict, t: float) -> dict:
-    st = fleet_sim.sim_sensor_state(s["id"], s.get("tipo",""), t)
+
+def _ingest_age(sid: str, t: float):
+    """Idade do ultimo pacote real, ou None se nunca houve."""
+    if not ingest_store:
+        return None
+    rec = ingest_store.get(sid)
+    if not rec:
+        return None
+    return t - rec.get("ts_server", 0)
+
+
+def _decide(s: dict, mode: str, t: float) -> dict:
+    """Decide origem e estado de UM sensor, honestamente."""
+    sid = s["id"]
+    age = _ingest_age(sid, t)
+
+    # 1) Ha dado real recente? -> REAL (independente do modo)
+    if age is not None and age <= REAL_MUDO_S:
+        s["data_origin"] = "real"
+        s["status"] = "online" if age <= REAL_VIVO_S else "degraded"
+        s["age_s"] = round(age, 1)
+        s["origem"] = "real"
+        # nao mexe nos valores — vem do ingest noutro sitio
+        return s
+
+    # 2) Sem dado real. Conforme o modo do ambiente:
+    if mode == "real":
+        # devia ser real mas esta mudo
+        s["data_origin"] = "real-mudo"
+        s["status"] = "sem-dados"
+        s["origem"] = "real"
+        if age is not None:
+            s["age_s"] = round(age, 1)
+        return s
+
+    # 3) modo sim -> simulado honesto
+    st = fleet_sim.sim_sensor_state(sid, s.get("tipo",""), t)
+    s["data_origin"] = "simulado"
     s["status"] = st["status"]
     s["uptime_s"] = st["uptime_s"]
     s["rssi_dbm"] = st["rssi_dbm"]
@@ -32,41 +72,18 @@ def _enriquece_sim(s: dict, t: float) -> dict:
     return s
 
 
-def _enriquece_real(s: dict, t: float) -> dict:
-    s["origem"] = "real"
-    # planned -> mantem (real nao tem dados)
-    if s.get("status") == "planned":
-        return s
-    if not ingest_store:
-        s["status"] = "sem-dados"; return s
-    rec = ingest_store.get(s["id"])
-    if not rec:
-        s["status"] = "sem-dados"
-        return s
-    age = t - rec.get("ts_server", 0)
-    if age < 15: s["status"] = "online"
-    elif age < 60: s["status"] = "degraded"
-    else: s["status"] = "offline"
-    s["age_s"] = round(age, 1)
-    return s
-
-
 @router.get("/fleet")
 async def get_fleet(mode: str = Query(default=None)):
     m = mode if mode in ("sim","real") else _MODE
     t = time.time()
     raw = build_fleet()
-    out = []
-    for s in raw:
-        item = dict(s)
-        item["mode"] = m
-        if m == "sim":
-            # SIM: ignora "planned", tudo passa pelo simulador
-            _enriquece_sim(item, t)
-        else:
-            _enriquece_real(item, t)
-        out.append(item)
-    return {"sensors": out, "mode": m, "ts": t, "total": len(out)}
+    out = [_decide(dict(s), m, t) for s in raw]
+    # contagem honesta
+    origem = Counter(x.get("data_origin","?") for x in out)
+    return {"sensors": out, "mode": m, "ts": t, "total": len(out),
+            "reais": origem.get("real", 0),
+            "simulados": origem.get("simulado", 0),
+            "reais_mudos": origem.get("real-mudo", 0)}
 
 
 @router.get("/fleet/summary")
@@ -74,20 +91,16 @@ async def fleet_summary(mode: str = Query(default=None)):
     data = await get_fleet(mode=mode)
     s = data["sensors"]
     statuses = Counter(x.get("status","desconhecido") for x in s)
+    origens = Counter(x.get("data_origin","?") for x in s)
     bats = [x["battery"]["pct"] for x in s if x.get("battery")]
-    by_cluster = {}
-    for x in s:
-        c = x.get("cluster") or "—"
-        by_cluster.setdefault(c, {"total":0,"online":0})
-        by_cluster[c]["total"] += 1
-        if x.get("status") == "online":
-            by_cluster[c]["online"] += 1
     return {
         "total": len(s),
         "status": dict(statuses),
+        "origem": dict(origens),
+        "reais": origens.get("real", 0),
+        "simulados": origens.get("simulado", 0),
+        "reais_mudos": origens.get("real-mudo", 0),
         "battery_avg_pct": round(sum(bats)/len(bats), 1) if bats else None,
-        "battery_n": len(bats),
-        "by_cluster": by_cluster,
         "mode": data["mode"],
         "ts": data["ts"],
     }

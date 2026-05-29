@@ -96,36 +96,49 @@ async def env_fleet(env_id: str):
         except Exception as ex:
             raise HTTPException(500, f"erro a obter frota do festival: {ex}")
 
-    # ambiente custom: so os sensores adicionados
+    # ambiente custom: so os sensores adicionados — distincao HONESTA real/simulado
     sensors = es.env_sensors(env_id)
+    try:
+        from app.services import ingest_store
+    except Exception:
+        ingest_store = None
     out = []
+    n_real = n_sim = n_mudo = 0
     for s in sensors:
         item = dict(s)
-        if modo == "sim":
+        age = None
+        if ingest_store:
+            rec = ingest_store.get(s["id"])
+            if rec:
+                age = time.time() - rec.get("ts_server", 0)
+        # 1) dado real recente?
+        if age is not None and age <= 60:
+            item["data_origin"] = "real"
+            item["status"] = "online" if age <= 15 else "degraded"
+            item["age_s"] = round(age, 1)
+            item["origem"] = "real"
+            n_real += 1
+        elif modo == "real":
+            item["data_origin"] = "real-mudo"
+            item["status"] = "sem-dados"
+            item["origem"] = "real"
+            if age is not None:
+                item["age_s"] = round(age, 1)
+            n_mudo += 1
+        else:
             st = sim.sim_sensor_state(s["id"], s["tipo"], t)
+            item["data_origin"] = "simulado"
             item["status"] = st["status"]
             item["uptime_s"] = st["uptime_s"]
             item["rssi_dbm"] = st["rssi_dbm"]
             if st["battery"] is not None:
                 item["battery"] = {"pct": st["battery"], "fonte": "simulado"}
             item["origem"] = "simulado"
-        else:
-            # real: estado do ingest_store por id do sensor
-            item["origem"] = "real"
-            try:
-                from app.services import ingest_store
-                rec = ingest_store.get(s["id"])
-                if rec:
-                    age = time.time() - rec.get("ts_server", 0)
-                    item["status"] = "online" if age < 15 else "degraded" if age < 60 else "offline"
-                    item["age_s"] = round(age, 1)
-                else:
-                    item["status"] = "sem-dados"
-            except Exception:
-                item["status"] = "sem-dados"
+            n_sim += 1
         out.append(item)
     return {"env": env_id, "modo": modo, "refresh_ms": e["refresh_ms"],
-            "total": len(out), "ts": t, "sensors": out}
+            "total": len(out), "ts": t, "sensors": out,
+            "reais": n_real, "simulados": n_sim, "reais_mudos": n_mudo}
 
 
 
