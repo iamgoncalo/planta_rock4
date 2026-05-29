@@ -149,6 +149,27 @@ def get_lobby(ttl_s: float = 120) -> list:
         return sorted(out, key=lambda x: x["last_seen"], reverse=True)
 
 
+def add_sensors_bulk(env_id, sensores):
+    """Adiciona vários sensores de uma vez. sensores = lista de dicts {id,tipo,label,cluster}.
+    Devolve {adicionados:[...], ignorados:[...]}."""
+    if env_id == "rock-in-rio":
+        return {"adicionados": [], "ignorados": [s.get("id") for s in sensores], "erro": "ambiente fixo"}
+    adicionados, ignorados = [], []
+    for s in sensores:
+        r = add_sensor(env_id, s["id"], s.get("tipo","lilygo"), s.get("label",""), s.get("cluster",""))
+        if r:
+            adicionados.append(r)
+        else:
+            ignorados.append(s.get("id"))
+    return {"adicionados": adicionados, "ignorados": ignorados}
+
+
+def gerar_ids(prefixo, tipo, n, inicio=1):
+    """Gera n IDs sequenciais. ex: gerar_ids('wc-02','ir',8) -> wc-02-ir-1..8"""
+    return [{"id": f"{prefixo}-{tipo}-{i}", "tipo": tipo, "label": f"{tipo} {i}"}
+            for i in range(inicio, inicio+n)]
+
+
 if __name__ == "__main__":
     print("=== AMBIENTES iniciais (semente) ===")
     for e in list_envs():

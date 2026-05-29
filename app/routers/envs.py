@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from app.services import env_store as es
 from app.services import fleet_sim as sim
+from app.services import capabilities as caps
 
 router = APIRouter(prefix="/api/v1", tags=["environments"])
 
@@ -125,6 +126,56 @@ async def env_fleet(env_id: str):
         out.append(item)
     return {"env": env_id, "modo": modo, "refresh_ms": e["refresh_ms"],
             "total": len(out), "ts": t, "sensors": out}
+
+
+
+class BulkGenIn(BaseModel):
+    prefixo: str
+    tipo: str = "ir"
+    quantidade: int = 8
+    inicio: int = 1
+
+
+class BulkListIn(BaseModel):
+    sensores: list  # [{id,tipo,label?,cluster?}]
+
+
+@router.post("/envs/{env_id}/sensors/bulk_gen")
+async def add_bulk_gen(env_id: str, body: BulkGenIn):
+    """Gera N sensores sequenciais (ex: prefixo wc-02, tipo ir, qtd 8 -> wc-02-ir-1..8)."""
+    if not es.get_env(env_id):
+        raise HTTPException(404, f"ambiente desconhecido: {env_id}")
+    ids = es.gerar_ids(body.prefixo, body.tipo, max(1, min(50, body.quantidade)), body.inicio)
+    return es.add_sensors_bulk(env_id, ids)
+
+
+@router.post("/envs/{env_id}/sensors/bulk_list")
+async def add_bulk_list(env_id: str, body: BulkListIn):
+    """Adiciona uma lista de sensores de uma vez (colar lista)."""
+    if not es.get_env(env_id):
+        raise HTTPException(404, f"ambiente desconhecido: {env_id}")
+    return es.add_sensors_bulk(env_id, body.sensores)
+
+
+@router.get("/sensorcaps/{sensor_id}")
+async def sensor_capabilities(sensor_id: str, tipo: str = "lilygo", cluster: str = "", rssi: float = None):
+    """Capacidades de um sensor: alcance, ligacao, cobertura, saude (datasheet)."""
+    return caps.capability(sensor_id, tipo, cluster or None, rssi)
+
+
+@router.get("/network/coverage")
+async def network_coverage():
+    """Resumo da rede: alcances, topologia, cobertura por cluster (datasheet)."""
+    return caps.resumo_rede()
+
+
+@router.get("/network/cluster/{cluster_id}")
+async def cluster_coverage(cluster_id: str):
+    """Cobertura e ligacao de um cluster."""
+    r = caps.cobertura_cluster(cluster_id.lower())
+    if "erro" in r:
+        raise HTTPException(404, r["erro"])
+    return r
 
 
 @router.get("/lobby")
