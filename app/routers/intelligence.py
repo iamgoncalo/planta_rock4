@@ -24,16 +24,25 @@ class CounterfactualIn(BaseModel):
     params: dict = {}
 
 
-@router.get("/alerts")
-async def alerts(env: str = Query(default="rock-in-rio")):
-    """Calcula alertas em tempo real a partir do estado da frota e da fusao."""
+@router.get("/alerts/smart")
+async def alerts(env: str = Query(default="rock-in-rio"), mode: str = Query(default="sim")):
+    """Calcula alertas inteligentes em tempo real (frota + fusao). Robusto:
+    se a fusao falhar, calcula na mesma os alertas de frota."""
+    sensors = []
+    fusions = {}
     try:
         from app.routers.fleet import get_fleet
-        from app.routers.fusion import fusion_all
-        fleet_data = await get_fleet(mode=None)
+        fleet_data = await get_fleet(mode=mode)
         sensors = fleet_data.get("sensors", [])
-        fus_data = await fusion_all(mode="sim")
+    except Exception:
+        sensors = []
+    try:
+        from app.routers.fusion import fusion_all
+        fus_data = await fusion_all(mode=mode)
         fusions = fus_data.get("clusters", {})
+    except Exception:
+        fusions = {}
+    try:
         return alerts_engine.calcular(sensors, fusions)
     except Exception as ex:
         return {"alertas": [], "sumario": {"crit":0,"warn":0,"info":0,"total":0},
@@ -91,3 +100,20 @@ async def festival_profile_get(day: str = Query(default=None)):
 @router.get("/festival/pressure")
 async def festival_pressure(day: str = Query(...), h: float = Query(...)):
     return festival_profile.pressao_estimada(day, h)
+
+@router.post("/demo/hour")
+async def set_demo_hour(h: float = Query(..., description="Hora do festival 0-24 (ex: 22). Use -1 para voltar à hora real.")):
+    """Força a hora do festival para demonstrar o sistema vivo a qualquer hora.
+    h=-1 volta à hora real."""
+    from app.services import fleet_sim
+    val = None if h < 0 else h
+    result = fleet_sim.set_demo_hour(val)
+    return {"hora_forcada": result, "hora_efetiva": fleet_sim.hora_festival(__import__("time").time())}
+
+
+@router.get("/demo/hour")
+async def get_demo_hour():
+    from app.services import fleet_sim
+    import time as _t
+    return {"hora_forcada": fleet_sim.get_demo_hour(),
+            "hora_efetiva": round(fleet_sim.hora_festival(_t.time()), 1)}

@@ -16,6 +16,19 @@ CAP = {
     "wc-08": {"m":84,"f":61,"esp":116.0,"uni":False,"palco":461},
 }
 
+# ── MODO DEMO: forçar uma hora do festival (para demonstrar a qualquer hora) ──
+_HORA_OVERRIDE = None  # None = hora real; ou float (ex: 22.0) = hora forçada
+
+def set_demo_hour(h):
+    """Força a hora do festival. h=None volta à hora real."""
+    global _HORA_OVERRIDE
+    _HORA_OVERRIDE = None if h is None else max(0.0, min(24.0, float(h)))
+    return _HORA_OVERRIDE
+
+def get_demo_hour():
+    return _HORA_OVERRIDE
+
+
 def _h(key: str, t: float, bucket: int = 10) -> float:
     b = int(t // bucket)
     return int(hashlib.md5(f"{key}:{b}".encode()).hexdigest()[:8], 16) / 0xFFFFFFFF
@@ -25,6 +38,8 @@ def _h_static(key: str) -> float:
 
 
 def hora_festival(t: float) -> float:
+    if _HORA_OVERRIDE is not None:
+        return _HORA_OVERRIDE
     g = time.gmtime(t)
     return (g.tm_hour + 1 + g.tm_min/60.0) % 24
 
