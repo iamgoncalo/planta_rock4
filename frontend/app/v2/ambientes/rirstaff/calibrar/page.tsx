@@ -2,71 +2,77 @@
 
 import { useEffect, useState, useCallback } from 'react';
 
-type Cfg = { raio_m: number; divisor: number; baseline: number; capacidade: number; contexto: string };
-type Casa = {
-  cluster: string; nome: string; ocupacao?: number | null; online?: boolean;
-  telemoveis_detectados?: number | null; age_s?: number; estado?: string;
-};
+type Cfg = { raio_m: number; divisor: number; baseline: number; capacidade: number };
+type Casa = { cluster: string; ocupacao?: number | null; online?: boolean; telemoveis_detectados?: number | null; age_s?: number };
 
 const API = 'https://api.plantarockinrio.com';
-const CLUSTERS = [
-  { id: 'rirstaff-f', nome: 'Mulheres', icon: '♀' },
-  { id: 'rirstaff-m', nome: 'Homens', icon: '♂' },
-];
 
 export default function CalibrarPage() {
   const [autenticado, setAutenticado] = useState(false);
   const [pass, setPass] = useState('');
-  const [cluster, setCluster] = useState('rirstaff-f');
-  const [cfg, setCfg] = useState<Cfg>({ raio_m: 5, divisor: 3, baseline: 0, capacidade: 8, contexto: 'staff' });
-  const [vivo, setVivo] = useState<Casa | null>(null);
+  const [alvo, setAlvo] = useState<'ambos' | 'rirstaff-f' | 'rirstaff-m'>('ambos');
+  const [cfg, setCfg] = useState<Cfg>({ raio_m: 5, divisor: 3, baseline: 0, capacidade: 8 });
+  const [vivoF, setVivoF] = useState<Casa | null>(null);
+  const [vivoM, setVivoM] = useState<Casa | null>(null);
   const [msg, setMsg] = useState('');
   const [aGuardar, setAGuardar] = useState(false);
 
-  // carrega config atual do cluster
-  const carregarCfg = useCallback(async (cl: string) => {
+  // estado ao vivo dos dois, ao segundo
+  const carregarVivo = useCallback(async () => {
     try {
-      const r = await fetch(`${API}/api/v1/rirstaff/config/${cl}`, { cache: 'no-store' });
+      const r = await fetch(`${API}/api/v1/rirstaff`, { cache: 'no-store' });
       const d = await r.json();
-      setCfg({ raio_m: d.raio_m ?? 5, divisor: d.divisor ?? 3, baseline: d.baseline ?? 0,
-               capacidade: d.capacidade ?? 8, contexto: d.contexto ?? 'staff' });
+      for (const c of (d.casas_de_banho || [])) {
+        if (c.cluster === 'rirstaff-f') setVivoF(c);
+        if (c.cluster === 'rirstaff-m') setVivoM(c);
+      }
     } catch {}
   }, []);
 
-  // estado ao vivo do cluster (para ver enquanto calibras)
-  const carregarVivo = useCallback(async (cl: string) => {
-    try {
-      const r = await fetch(`${API}/api/v1/rirstaff/${cl}`, { cache: 'no-store' });
-      const d = await r.json();
-      setVivo(d);
-    } catch {}
-  }, []);
-
-  useEffect(() => { carregarCfg(cluster); }, [cluster, carregarCfg]);
   useEffect(() => {
-    carregarVivo(cluster);
-    const i = setInterval(() => carregarVivo(cluster), 1000);
+    carregarVivo();
+    const i = setInterval(carregarVivo, 1000); // AO SEGUNDO
     return () => clearInterval(i);
-  }, [cluster, carregarVivo]);
+  }, [carregarVivo]);
+
+  // ao entrar, carrega a config atual (do rirstaff-f como base)
+  const carregarCfg = useCallback(async () => {
+    try {
+      const r = await fetch(`${API}/api/v1/rirstaff/config/rirstaff-f`, { cache: 'no-store' });
+      const d = await r.json();
+      setCfg({ raio_m: d.raio_m ?? 5, divisor: d.divisor ?? 3, baseline: d.baseline ?? 0, capacidade: d.capacidade ?? 8 });
+    } catch {}
+  }, []);
+  useEffect(() => { if (autenticado) carregarCfg(); }, [autenticado, carregarCfg]);
+
+  const guardarUm = async (cluster: string) => {
+    const r = await fetch(`${API}/api/v1/rirstaff/config/${cluster}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pass, ...cfg }),
+    });
+    return r;
+  };
 
   const guardar = async () => {
     setAGuardar(true); setMsg('a guardar…');
     try {
-      const r = await fetch(`${API}/api/v1/rirstaff/config/${cluster}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: pass, ...cfg }),
-      });
-      if (r.status === 401) { setMsg('Password errada'); setAGuardar(false); return; }
-      const d = await r.json();
-      setMsg(d.ok ? 'Guardado. O sensor aplica em ~10s — vê o número ao lado a mudar.' : 'Erro a guardar');
+      const alvos = alvo === 'ambos' ? ['rirstaff-f', 'rirstaff-m'] : [alvo];
+      let ok = true, erro401 = false;
+      for (const cl of alvos) {
+        const r = await guardarUm(cl);
+        if (r.status === 401) { erro401 = true; ok = false; break; }
+        if (!r.ok) ok = false;
+      }
+      if (erro401) setMsg('Password errada');
+      else if (ok) setMsg(alvo === 'ambos'
+        ? 'Guardado nos DOIS sensores. Aplicam em ~10s.'
+        : 'Guardado. Aplica em ~10s.');
+      else setMsg('Erro a guardar');
     } catch { setMsg('Sem ligação ao servidor'); }
     setAGuardar(false);
   };
 
-  const entrar = () => {
-    if (pass.length >= 4) setAutenticado(true);
-    else setMsg('Mete a password');
-  };
+  const entrar = () => { if (pass.length >= 4) setAutenticado(true); else setMsg('Mete a password'); };
 
   if (!autenticado) {
     return (
@@ -93,87 +99,75 @@ export default function CalibrarPage() {
     );
   }
 
-  const pessoas = vivo?.ocupacao ?? null;
-  const tlm = vivo?.telemoveis_detectados ?? null;
-  const online = vivo?.online ?? false;
+  const cartaoVivo = (nome: string, icon: string, v: Casa | null) => (
+    <div className="cal-vivo">
+      <div className="cal-vivo-top">
+        <span className={`cal-dot ${v?.online ? 'on' : ''}`} />
+        {icon} {nome} · {v?.online ? `${v?.age_s != null ? Math.round(v.age_s) : '?'}s` : 'offline'}
+      </div>
+      <div className="cal-num">{v?.ocupacao != null ? v.ocupacao : '—'}</div>
+      <div className="cal-tlm">{v?.telemoveis_detectados != null ? `${v.telemoveis_detectados} telemóveis` : 'sem dados'}</div>
+    </div>
+  );
 
   return (
     <div className="cal-wrap">
       <div className="cal-head">
         <div>
-          <h1>Calibrar sensor</h1>
-          <p>Ajusta e vê o número mudar ao vivo · sem cabo</p>
+          <h1>Calibrar sensores</h1>
+          <p>Ajusta e vê ao vivo · ao segundo · sem cabo</p>
         </div>
         <a href="/v2/ambientes/rirstaff" className="cal-voltar">← voltar</a>
       </div>
 
-      <div className="cal-tabs">
-        {CLUSTERS.map(c => (
-          <button key={c.id} className={cluster === c.id ? 'on' : ''} onClick={() => setCluster(c.id)}>
-            {c.icon} {c.nome}
-          </button>
-        ))}
+      {/* AO VIVO dos dois */}
+      <div className="cal-vivos">
+        {cartaoVivo('Mulheres', '♀', vivoF)}
+        {cartaoVivo('Homens', '♂', vivoM)}
       </div>
 
-      <div className="cal-grid">
-        {/* PAINEL AO VIVO */}
-        <div className="cal-vivo">
-          <div className="cal-vivo-top">
-            <span className={`cal-dot ${online ? 'on' : ''}`} />
-            {online ? `AO VIVO · ${vivo?.age_s != null ? Math.round(vivo.age_s) : '?'}s` : 'offline'}
-          </div>
-          <div className="cal-num">{pessoas != null ? pessoas : '—'}</div>
-          <div className="cal-num-sub">pessoas agora</div>
-          <div className="cal-tlm">{tlm != null ? `${tlm} telemóveis detetados` : 'sem dados'}</div>
-          <div className="cal-hint">
-            Com a casa de banho <b>vazia</b>, vê quantas pessoas mostra.
-            Sobe o <b>baseline</b> até dar 0.
-          </div>
-        </div>
+      {/* alvo: ambos ou um */}
+      <div className="cal-tabs">
+        <button className={alvo === 'ambos' ? 'on' : ''} onClick={() => setAlvo('ambos')}>Os dois</button>
+        <button className={alvo === 'rirstaff-f' ? 'on' : ''} onClick={() => setAlvo('rirstaff-f')}>♀ Mulheres</button>
+        <button className={alvo === 'rirstaff-m' ? 'on' : ''} onClick={() => setAlvo('rirstaff-m')}>♂ Homens</button>
+      </div>
 
-        {/* CONTROLOS */}
-        <div className="cal-ctrl">
-          <Slider label="Baseline (ruído a subtrair)" val={cfg.baseline} min={0} max={40}
-            onChange={v => setCfg({ ...cfg, baseline: v })} />
-          <Slider label="Raio (metros)" val={cfg.raio_m} min={1} max={20}
-            onChange={v => setCfg({ ...cfg, raio_m: v })} />
-          <Slider label="Divisor (telemóveis por pessoa)" val={cfg.divisor} min={1} max={6}
-            onChange={v => setCfg({ ...cfg, divisor: v })} />
-          <Slider label="Capacidade" val={cfg.capacidade} min={1} max={30}
-            onChange={v => setCfg({ ...cfg, capacidade: v })} />
-
-          <button className="cal-guardar" onClick={guardar} disabled={aGuardar}>
-            {aGuardar ? 'a guardar…' : 'Guardar calibração'}
-          </button>
-          {msg && <div className={`cal-msg ${msg.includes('errada') || msg.includes('Erro') || msg.includes('Sem') ? 'erro' : 'ok'}`}>{msg}</div>}
-        </div>
+      {/* controlos */}
+      <div className="cal-ctrl">
+        <Slider label="Baseline (ruído a subtrair)" val={cfg.baseline} min={0} max={40} onChange={v => setCfg({ ...cfg, baseline: v })} />
+        <Slider label="Raio (metros)" val={cfg.raio_m} min={1} max={20} onChange={v => setCfg({ ...cfg, raio_m: v })} />
+        <Slider label="Divisor (telemóveis por pessoa)" val={cfg.divisor} min={1} max={6} onChange={v => setCfg({ ...cfg, divisor: v })} />
+        <Slider label="Capacidade" val={cfg.capacidade} min={1} max={30} onChange={v => setCfg({ ...cfg, capacidade: v })} />
+        <button className="cal-guardar" onClick={guardar} disabled={aGuardar}>
+          {aGuardar ? 'a guardar…' : alvo === 'ambos' ? 'Guardar nos DOIS' : 'Guardar'}
+        </button>
+        {msg && <div className={`cal-msg ${msg.includes('errada') || msg.includes('Erro') || msg.includes('Sem') ? 'erro' : 'ok'}`}>{msg}</div>}
       </div>
 
       <style jsx>{`
-        .cal-wrap { max-width: 900px; margin: 0 auto; padding: 24px; font-family: 'Inter', system-ui, sans-serif; color: #0D1A0F; }
-        .cal-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-        h1 { font-size: clamp(22px, 3vw, 30px); margin: 0; font-weight: 600; }
-        p { color: #6B756C; font-size: 14px; margin: 4px 0 0; }
+        .cal-wrap { max-width: 760px; margin: 0 auto; padding: 20px; font-family: 'Inter', system-ui, sans-serif; color: #0D1A0F; }
+        .cal-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 18px; }
+        h1 { font-size: clamp(20px, 3vw, 28px); margin: 0; font-weight: 600; }
+        p { color: #6B756C; font-size: 13px; margin: 4px 0 0; }
         .cal-voltar { color: #4A7C59; font-size: 14px; text-decoration: none; font-weight: 600; }
-        .cal-tabs { display: flex; gap: 10px; margin-bottom: 20px; }
-        .cal-tabs button { flex: 1; padding: 12px; border: 1px solid #E5E8E0; background: #fff; border-radius: 12px; font-size: 15px; font-family: inherit; cursor: pointer; color: #6B756C; }
+        .cal-vivos { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+        .cal-vivo { border: 1px solid #E5E8E0; border-radius: 16px; padding: 16px; text-align: center; background: #FAFBF9; }
+        .cal-vivo-top { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .03em; color: #6B756C; text-transform: uppercase; margin-bottom: 8px; }
+        .cal-dot { width: 8px; height: 8px; border-radius: 50%; background: #C9CEC4; }
+        .cal-dot.on { background: #1B7A3D; box-shadow: 0 0 0 3px rgba(27,122,61,.18); }
+        .cal-num { font-size: 52px; font-weight: 700; line-height: 1; color: #1B3A21; }
+        .cal-tlm { font-size: 12px; color: #4A7C59; margin-top: 8px; }
+        .cal-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .cal-tabs button { flex: 1; padding: 11px; border: 1px solid #E5E8E0; background: #fff; border-radius: 11px; font-size: 14px; font-family: inherit; cursor: pointer; color: #6B756C; }
         .cal-tabs button.on { background: #1B3A21; color: #fff; border-color: #1B3A21; font-weight: 600; }
-        .cal-grid { display: grid; grid-template-columns: 1fr 1.3fr; gap: 20px; }
-        .cal-vivo { border: 1px solid #E5E8E0; border-radius: 18px; padding: 24px; text-align: center; background: #FAFBF9; }
-        .cal-vivo-top { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; letter-spacing: .04em; color: #6B756C; text-transform: uppercase; margin-bottom: 16px; }
-        .cal-dot { width: 9px; height: 9px; border-radius: 50%; background: #C9CEC4; }
-        .cal-dot.on { background: #1B7A3D; box-shadow: 0 0 0 4px rgba(27,122,61,.18); }
-        .cal-num { font-size: 72px; font-weight: 700; line-height: 1; color: #1B3A21; }
-        .cal-num-sub { font-size: 13px; color: #8A938B; margin-top: 4px; }
-        .cal-tlm { font-size: 13px; color: #4A7C59; margin-top: 14px; }
-        .cal-hint { font-size: 12px; color: #8A938B; margin-top: 18px; line-height: 1.5; }
-        .cal-ctrl { border: 1px solid #E5E8E0; border-radius: 18px; padding: 24px; }
-        .cal-guardar { width: 100%; padding: 14px; background: #1B3A21; color: #fff; border: none; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+        .cal-ctrl { border: 1px solid #E5E8E0; border-radius: 16px; padding: 20px; }
+        .cal-guardar { width: 100%; padding: 14px; background: #1B3A21; color: #fff; border: none; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 6px; }
         .cal-guardar:disabled { opacity: .6; }
         .cal-msg { margin-top: 12px; font-size: 13px; text-align: center; }
         .cal-msg.ok { color: #1B7A3D; }
         .cal-msg.erro { color: #C25A1A; }
-        @media (max-width: 720px) { .cal-grid { grid-template-columns: 1fr; } }
+        @media (max-width: 600px) { .cal-vivos { grid-template-columns: 1fr 1fr; } }
       `}</style>
     </div>
   );
@@ -185,7 +179,7 @@ function Slider({ label, val, min, max, onChange }: { label: string; val: number
       <div className="sl-top"><span>{label}</span><b>{val}</b></div>
       <input type="range" min={min} max={max} value={val} onChange={e => onChange(+e.target.value)} />
       <style jsx>{`
-        .sl { margin-bottom: 20px; }
+        .sl { margin-bottom: 18px; }
         .sl-top { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px; }
         .sl-top b { color: #1B3A21; font-size: 15px; }
         input { width: 100%; accent-color: #1B3A21; }
