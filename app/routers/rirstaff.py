@@ -161,9 +161,9 @@ def _snapshot(cluster: str) -> dict:
     age = time.time() - rec["ts_server"]
     f = _fusao(cluster, rec["params"])
     f["data_origin"] = "real"
-    f["online"] = age < 15
+    f["online"] = age < 30
     f["age_s"] = round(age, 1)
-    if age >= 15:
+    if age >= 30:
         f["mensagem"] = f"Sem transmitir há {int(age)}s — verificar LilyGo/WiFi"
     return f
 
