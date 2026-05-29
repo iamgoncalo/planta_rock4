@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '@/lib/v2-api';
+import { envApi } from '@/lib/v2-api-envs';
 
 /* ════════════════════════════════════════════════════════════════════
    /v2/sensors — PAGINA DOS SENSORES (focada).
@@ -54,7 +55,7 @@ export default function SensorsPage(){
   // carregar ambientes
   const loadEnvs=async()=>{
     try{
-      const r=await api.listEnvs();
+      const r=await envApi.list();
       const list=r.envs||[];
       setEnvs(list);
       if(!list.find((e:Env)=>e.id===activeEnv) && list.length>0){
@@ -66,7 +67,7 @@ export default function SensorsPage(){
   // carregar sensores do ambiente ativo
   const loadSensors=async()=>{
     try{
-      const r=await api.envFleet(activeEnv);
+      const r=await envApi.fleet(activeEnv);
       setSensors(r.sensors||[]);
       setLastUpdate(new Date());
       setLoading(false);
@@ -125,7 +126,7 @@ export default function SensorsPage(){
   const submitAdd=async()=>{
     if(!newSensor.id.trim()){toastIt('ID em falta','erro');return;}
     try{
-      await api.addEnvSensor(activeEnv,{id:newSensor.id.trim(),tipo:newSensor.tipo,label:newSensor.label.trim()});
+      await envApi.addSensor(activeEnv,{id:newSensor.id.trim(),tipo:newSensor.tipo,label:newSensor.label.trim()});
       toastIt(`sensor ${newSensor.id} adicionado`);
       setShowAdd(false);setNewSensor({id:'',tipo:'lilygo',label:''});
       loadSensors();loadEnvs();
@@ -134,7 +135,7 @@ export default function SensorsPage(){
   // remover sensor
   const doRemove=async(sid:string)=>{
     try{
-      await api.removeEnvSensor(activeEnv,sid);
+      await envApi.removeSensor(activeEnv,sid);
       toastIt(`removido ${sid}`);
       setConfirmRemove(null);setSelSensor(null);
       loadSensors();loadEnvs();
@@ -146,7 +147,7 @@ export default function SensorsPage(){
   const submitNewEnv=async()=>{
     if(!newEnv.nome.trim()){toastIt('nome em falta','erro');return;}
     try{
-      const r=await api.createEnv({nome:newEnv.nome.trim(),modo:newEnv.modo,refresh_ms:newEnv.refresh_ms});
+      const r=await envApi.create({nome:newEnv.nome.trim(),modo:newEnv.modo,refresh_ms:newEnv.refresh_ms});
       toastIt(`ambiente "${r.nome}" criado`);
       setShowNewEnv(false);setNewEnv({nome:'',refresh_ms:1500,modo:'real'});
       await loadEnvs();
