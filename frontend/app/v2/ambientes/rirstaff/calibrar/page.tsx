@@ -45,7 +45,7 @@ export default function CalibrarPage() {
   useEffect(() => { carregarCfg(cluster); }, [cluster, carregarCfg]);
   useEffect(() => {
     carregarVivo(cluster);
-    const i = setInterval(() => carregarVivo(cluster), 1500);
+    const i = setInterval(() => carregarVivo(cluster), 1000);
     return () => clearInterval(i);
   }, [cluster, carregarVivo]);
 
