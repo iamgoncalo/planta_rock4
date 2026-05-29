@@ -71,4 +71,17 @@ export const envApi = {
       method: 'DELETE',
     }),
   lobby: () => getJson<{ lobby: any[] }>('/api/v1/lobby'),
+  bulkGen: (envId: string, body: { prefixo: string; tipo: string; quantidade: number; inicio?: number }) =>
+    getJson<{ adicionados: any[]; ignorados: string[] }>(`/api/v1/envs/${envId}/sensors/bulk_gen`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    }),
+  bulkList: (envId: string, sensores: { id: string; tipo: string; label?: string }[]) =>
+    getJson<{ adicionados: any[]; ignorados: string[] }>(`/api/v1/envs/${envId}/sensors/bulk_list`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sensores }),
+    }),
+  caps: (id: string, tipo: string, cluster?: string, rssi?: number) =>
+    getJson<any>(`/api/v1/sensorcaps/${id}?tipo=${tipo}${cluster ? '&cluster=' + cluster : ''}${rssi != null ? '&rssi=' + rssi : ''}`),
+  networkCoverage: () => getJson<any>('/api/v1/network/coverage'),
+  setDemoHour: (h: number) => getJson<any>(`/api/v1/demo/hour?h=${h}`, { method: 'POST' }),
+  getDemoHour: () => getJson<any>('/api/v1/demo/hour'),
 };

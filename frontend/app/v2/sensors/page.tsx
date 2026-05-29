@@ -47,6 +47,15 @@ export default function SensorsPage(){
   const [confirmRemove,setConfirmRemove]=useState<string|null>(null);
   // toast
   const [toast,setToast]=useState<{msg:string;kind:'ok'|'erro'}|null>(null);
+  // bulk add
+  const [showBulk,setShowBulk]=useState(false);
+  const [bulkTab,setBulkTab]=useState<'gen'|'list'>('gen');
+  const [bulkGen,setBulkGen]=useState({prefixo:'wc-02',tipo:'ir',quantidade:8});
+  const [bulkText,setBulkText]=useState('');
+  // capacidades do sensor
+  const [caps,setCaps]=useState<any>(null);
+  // modo demo (hora)
+  const [demoHour,setDemoHour]=useState<number|null>(null);
 
   const toastIt=(msg:string,kind:'ok'|'erro'='ok')=>{
     setToast({msg,kind});setTimeout(()=>setToast(null),3000);
@@ -77,7 +86,7 @@ export default function SensorsPage(){
     }
   };
 
-  useEffect(()=>{loadEnvs();},[]);
+  useEffect(()=>{loadEnvs();envApi.getDemoHour().then((r:any)=>setDemoHour(r.hora_forcada)).catch(()=>{});},[]);
   useEffect(()=>{
     if(!activeEnv)return;
     setLoading(true);
@@ -95,6 +104,9 @@ export default function SensorsPage(){
     if(!selSensor)return;
     setDetail(null);setCmdResults([]);
     api.sensorDetail(selSensor.id).then(setDetail).catch(()=>setDetail({erro:'sem detalhe'}));
+    setCaps(null);
+    envApi.caps(selSensor.id, selSensor.tipo, selSensor.cluster||undefined, selSensor.rssi_dbm)
+      .then(setCaps).catch(()=>{});
   },[selSensor]);
 
   const runCmd=async(cmd:string)=>{
@@ -140,6 +152,45 @@ export default function SensorsPage(){
       setConfirmRemove(null);setSelSensor(null);
       loadSensors();loadEnvs();
     }catch(e:any){toastIt(`erro: ${String(e?.message||e).slice(0,40)}`,'erro');}
+  };
+
+  // adicionar em massa — gerar
+  const submitBulkGen=async()=>{
+    try{
+      const r=await envApi.bulkGen(activeEnv,{prefixo:bulkGen.prefixo.trim(),tipo:bulkGen.tipo,quantidade:bulkGen.quantidade});
+      toastIt(`${r.adicionados.length} sensores criados${r.ignorados.length?` (${r.ignorados.length} já existiam)`:''}`);
+      setShowBulk(false);loadSensors();loadEnvs();
+    }catch(e:any){toastIt(`erro: ${String(e?.message||e).slice(0,40)}`,'erro');}
+  };
+  // adicionar em massa — colar lista
+  const submitBulkList=async()=>{
+    const linhas=bulkText.split('\n').map(l=>l.trim()).filter(Boolean);
+    if(linhas.length===0){toastIt('lista vazia','erro');return;}
+    const sensores=linhas.map(linha=>{
+      const partes=linha.split(/[,;\s]+/);
+      const id=partes[0];
+      let tipo='lilygo';
+      const low=id.toLowerCase();
+      if(low.includes('cam'))tipo='camera';else if(low.includes('ir'))tipo='ir';
+      else if(low.includes('lora')||low.includes('gateway'))tipo='gateway_lora';
+      else if(low.includes('wifi')||low.includes('ap'))tipo='ap_wifi';
+      if(partes[1])tipo=partes[1];
+      return {id,tipo};
+    });
+    try{
+      const r=await envApi.bulkList(activeEnv,sensores);
+      toastIt(`${r.adicionados.length} adicionados${r.ignorados.length?` · ${r.ignorados.length} ignorados`:''}`);
+      setShowBulk(false);setBulkText('');loadSensors();loadEnvs();
+    }catch(e:any){toastIt(`erro: ${String(e?.message||e).slice(0,40)}`,'erro');}
+  };
+  // modo demo
+  const toggleDemoHour=async(h:number|null)=>{
+    try{
+      const r=await envApi.setDemoHour(h==null?-1:h);
+      setDemoHour(r.hora_forcada);
+      toastIt(h==null?'hora real':`hora forçada: ${h}h`);
+      loadSensors();
+    }catch(e:any){toastIt('erro a mudar hora','erro');}
   };
 
   // criar ambiente
@@ -192,7 +243,17 @@ export default function SensorsPage(){
         <button className="sn-add" disabled={fixo} onClick={()=>setShowAdd(true)} title={fixo?'ambiente fixo — usa um custom':''}>
           ＋ Adicionar sensor
         </button>
-        {fixo && <span className="sn-help">Ambiente fixo (Rock in Rio). Cria um novo para adicionar/remover sensores.</span>}
+        <button className="sn-add-sec" disabled={fixo} onClick={()=>setShowBulk(true)}>
+          ＋＋ Em massa
+        </button>
+        <div className="sn-demo">
+          <span className="sn-demo-label">Hora festival</span>
+          <button className={demoHour===null?'on':''} onClick={()=>toggleDemoHour(null)}>real</button>
+          <button className={demoHour===20?'on':''} onClick={()=>toggleDemoHour(20)}>20h</button>
+          <button className={demoHour===22?'on':''} onClick={()=>toggleDemoHour(22)}>22h pico</button>
+          <button className={demoHour===23.8?'on':''} onClick={()=>toggleDemoHour(23.8)}>surto</button>
+        </div>
+        {fixo && <span className="sn-help">Ambiente fixo. Cria um novo para adicionar sensores.</span>}
       </div>
 
       {/* GRELHA DE SENSORES */}
@@ -279,6 +340,25 @@ export default function SensorsPage(){
               }
             </div>
 
+            {caps && (
+              <div className="sn-caps">
+                <div className="sn-dr-cmds-t">Capacidades & alcance</div>
+                <div className="sn-caps-rows">
+                  <div><span>Modelo</span><b>{caps.modelo}</b></div>
+                  <div><span>Função</span><b className="sn-caps-fn">{caps.funcao}</b></div>
+                  <div><span>Ligação</span><b>{caps.ligacao_principal}</b></div>
+                  {caps.margem_db!=null && <div><span>Sinal</span><b style={{color:caps.saude_ligacao==='boa'?'#4A7C59':caps.saude_ligacao==='fraca'?'#C25A1A':'#0D1A0F'}}>{caps.rssi_dbm}dBm · {caps.saude_ligacao} (margem {caps.margem_db}dB)</b></div>}
+                  {caps.distancia_ao_palco_m!=null && <div><span>Distância ao palco</span><b>{caps.distancia_ao_palco_m}m</b></div>}
+                  {caps.alcance_m && Object.entries(caps.alcance_m).map(([k,v]:any)=>(
+                    <div key={k}><span>Alcance · {k.replace(/_/g,' ')}</span><b>{v}m</b></div>
+                  ))}
+                  <div><span>Alimentação</span><b>{caps.alimentacao}</b></div>
+                  {caps.rgpd && <div><span>RGPD</span><b className="sn-caps-fn">{caps.rgpd}</b></div>}
+                </div>
+                <div className="sn-caps-fonte">fonte: {caps.fonte_specs}</div>
+              </div>
+            )}
+
             {!fixo && (
               <div className="sn-dr-remove">
                 {confirmRemove===selSensor.id?(
@@ -313,6 +393,47 @@ export default function SensorsPage(){
               <button className="sn-btn-cancel" onClick={()=>setShowAdd(false)}>Cancelar</button>
               <button className="sn-btn-ok" onClick={submitAdd}>Adicionar</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* DIALOG ADICIONAR EM MASSA */}
+      {showBulk && (
+        <div className="sn-modal-bg" onClick={()=>setShowBulk(false)}>
+          <div className="sn-modal" onClick={e=>e.stopPropagation()}>
+            <h3>Adicionar em massa a "{env?.nome}"</h3>
+            <div className="sn-bulk-tabs">
+              <button className={bulkTab==='gen'?'on':''} onClick={()=>setBulkTab('gen')}>Gerar automático</button>
+              <button className={bulkTab==='list'?'on':''} onClick={()=>setBulkTab('list')}>Colar lista</button>
+            </div>
+            {bulkTab==='gen'?(
+              <div>
+                <label>Prefixo (cluster ou nome)</label>
+                <input value={bulkGen.prefixo} onChange={e=>setBulkGen({...bulkGen,prefixo:e.target.value})} placeholder="ex: wc-02"/>
+                <label>Tipo</label>
+                <select value={bulkGen.tipo} onChange={e=>setBulkGen({...bulkGen,tipo:e.target.value})}>
+                  {TIPOS.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
+                <label>Quantidade ({bulkGen.quantidade})</label>
+                <input type="range" min={1} max={20} value={bulkGen.quantidade} onChange={e=>setBulkGen({...bulkGen,quantidade:Number(e.target.value)})}/>
+                <p className="sn-soft" style={{fontSize:12,marginTop:8}}>Vai criar: <b>{bulkGen.prefixo}-{bulkGen.tipo}-1</b> até <b>{bulkGen.prefixo}-{bulkGen.tipo}-{bulkGen.quantidade}</b></p>
+                <div className="sn-modal-buttons">
+                  <button className="sn-btn-cancel" onClick={()=>setShowBulk(false)}>Cancelar</button>
+                  <button className="sn-btn-ok" onClick={submitBulkGen}>Criar {bulkGen.quantidade}</button>
+                </div>
+              </div>
+            ):(
+              <div>
+                <label>Cola os IDs (um por linha)</label>
+                <textarea value={bulkText} onChange={e=>setBulkText(e.target.value)} rows={7}
+                  placeholder={'staff-lilygo-1\nstaff-cam-1\nstaff-ir-1\n...'}/>
+                <p className="sn-soft" style={{fontSize:12,marginTop:6}}>O tipo é inferido pelo nome (lilygo/cam/ir/wifi). {bulkText.split('\n').filter(l=>l.trim()).length} linhas.</p>
+                <div className="sn-modal-buttons">
+                  <button className="sn-btn-cancel" onClick={()=>setShowBulk(false)}>Cancelar</button>
+                  <button className="sn-btn-ok" onClick={submitBulkList}>Adicionar lista</button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -455,6 +576,23 @@ export default function SensorsPage(){
         .sn-tec{font-size:11px;color:#8A938B;text-decoration:none;}
         .sn-tec:hover{color:#1B3A21;}
 
+        .sn-add-sec{background:#fff;color:#1B3A21;border:1px solid #1B3A21;border-radius:10px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;}
+        .sn-add-sec:hover{background:#F0F5F1;}
+        .sn-add-sec:disabled{color:#C9CEC4;border-color:#E5E8E0;cursor:not-allowed;}
+        .sn-demo{display:flex;align-items:center;gap:4px;margin-left:auto;background:#fff;border:1px solid #E5E8E0;border-radius:10px;padding:4px 8px;}
+        .sn-demo-label{font-size:11px;color:#8A938B;margin-right:4px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;}
+        .sn-demo button{background:transparent;border:none;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit;color:#0D1A0F;}
+        .sn-demo button.on{background:#1B3A21;color:#fff;font-weight:600;}
+        .sn-bulk-tabs{display:flex;gap:6px;margin-bottom:14px;}
+        .sn-bulk-tabs button{flex:1;background:#F0F2EC;border:none;border-radius:8px;padding:9px;font-size:13px;cursor:pointer;font-family:inherit;color:#0D1A0F;}
+        .sn-bulk-tabs button.on{background:#1B3A21;color:#fff;font-weight:600;}
+        .sn-modal textarea{width:100%;border:1px solid #E5E8E0;border-radius:8px;padding:10px 12px;font-family:monospace;font-size:13px;box-sizing:border-box;resize:vertical;}
+        .sn-caps{margin-top:18px;}
+        .sn-caps-rows>div{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid #F0F2EC;font-size:13px;}
+        .sn-caps-rows span{color:#8A938B;flex-shrink:0;}
+        .sn-caps-rows b{text-align:right;}
+        .sn-caps-fn{font-weight:400!important;font-size:12px;color:#4A7C59!important;}
+        .sn-caps-fonte{font-size:10px;color:#C9CEC4;margin-top:8px;text-transform:uppercase;letter-spacing:.05em;}
         @media (max-width:680px){
           .sn-kpis{grid-template-columns:repeat(2,1fr);}
           .sn-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));}
