@@ -1027,6 +1027,17 @@ const _opsExtensionV9 = {
   scorStats: () => getJson<ScorStats>('/api/v1/scor/stats'),
   scorOverview: () => getJson<ScorOverview>('/api/v1/scor/overview'),
   pipelinesOverview: () => getJson<PipelinesOverview>('/api/v1/pipelines/overview'),
+  listEnvs: () => getJson<any>('/api/v1/envs'),
+  getEnv: (id: string) => getJson<any>(`/api/v1/envs/${id}`),
+  createEnv: (body: {nome: string; modo?: string; refresh_ms?: number}) =>
+    getJson<any>('/api/v1/envs', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(body) }),
+  deleteEnv: (id: string) => getJson<any>(`/api/v1/envs/${id}`, { method: 'DELETE' }),
+  envFleet: (id: string) => getJson<any>(`/api/v1/envs/${id}/fleet`),
+  addEnvSensor: (envId: string, body: {id: string; tipo: string; label?: string; cluster?: string}) =>
+    getJson<any>(`/api/v1/envs/${envId}/sensors`, { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify(body) }),
+  removeEnvSensor: (envId: string, sid: string) =>
+    getJson<any>(`/api/v1/envs/${envId}/sensors/${sid}`, { method: 'DELETE' }),
+  lobby: () => getJson<any>('/api/v1/lobby'),
 };
 
 Object.assign(api, _opsExtensionV9);
