@@ -27,7 +27,7 @@ function statusColor(s:string){return s==='online'?'#4A7C59':s==='degraded'?'#C2
 function statusLabel(s:string){return ({online:'Online',degraded:'Instável',offline:'Offline','sem-dados':'Sem dados',planned:'Planeado'} as any)[s]||s;}
 
 type Env = {id:string; nome:string; modo:string; refresh_ms:number; fixo?:boolean; n_sensores?:number};
-type Sensor = {id:string; tipo:string; cluster?:string; status?:string; label?:string; battery?:{pct:number;fonte:string}; rssi_dbm?:number; uptime_s?:number; origem?:string};
+type Sensor = {id:string; tipo:string; cluster?:string|null; status?:string; label?:string; battery?:{pct:number;fonte:string}; rssi_dbm?:number; uptime_s?:number; origem?:string};
 
 export default function SensorsPage(){
   const [envs,setEnvs]=useState<Env[]>([]);
