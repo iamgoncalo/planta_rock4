@@ -201,3 +201,55 @@ async def reset_counters(cluster: str):
             _RESET_OFFSET[cluster] = {"entradas": int(p.get("entradas_ir", 0)),
                                       "saidas": int(p.get("saidas_ir", 0))}
     return {"cluster": cluster, "reset": True}
+
+# ============================================================================
+# CALIBRACAO REMOTA — adicionado para PlantaOS Staff (calibrar sem cabo)
+# O sensor le GET /rirstaff/config/{cluster}; tu mudas com POST (password).
+# ============================================================================
+import os as _os, json as _json, time as _time
+from pydantic import BaseModel as _BaseModel
+from fastapi import HTTPException as _HTTPException
+
+_ADMIN_PASS = _os.getenv("RIRSTAFF_ADMIN_PASS", "planta2026")
+_CFG_FILE = _os.getenv("RIRSTAFF_CONFIG_FILE", "/tmp/rirstaff_config.json")
+_CFG_DEFAULT = {
+    "rirstaff-f": {"raio_m": 5, "divisor": 3, "baseline": 0, "capacidade": 8, "contexto": "staff"},
+    "rirstaff-m": {"raio_m": 5, "divisor": 3, "baseline": 0, "capacidade": 8, "contexto": "staff"},
+}
+def _cfg_load():
+    try:
+        with open(_CFG_FILE) as f: return _json.load(f)
+    except Exception: return dict(_CFG_DEFAULT)
+def _cfg_save(c):
+    try:
+        with open(_CFG_FILE, "w") as f: _json.dump(c, f)
+    except Exception: pass
+
+@router.get("/rirstaff/config/{cluster}")
+def rirstaff_get_config(cluster: str):
+    c = _cfg_load()
+    return c.get(cluster, _CFG_DEFAULT.get(cluster, _CFG_DEFAULT["rirstaff-f"]))
+
+class _CfgUpd(_BaseModel):
+    password: str
+    raio_m: int | None = None
+    divisor: int | None = None
+    baseline: int | None = None
+    capacidade: int | None = None
+    contexto: str | None = None
+
+@router.post("/rirstaff/config/{cluster}")
+def rirstaff_set_config(cluster: str, upd: _CfgUpd):
+    if upd.password != _ADMIN_PASS:
+        raise _HTTPException(status_code=401, detail="Password errada")
+    c = _cfg_load()
+    a = c.get(cluster, dict(_CFG_DEFAULT.get(cluster, _CFG_DEFAULT["rirstaff-f"])))
+    if upd.raio_m is not None: a["raio_m"] = max(1, min(30, upd.raio_m))
+    if upd.divisor is not None: a["divisor"] = max(1, min(6, upd.divisor))
+    if upd.baseline is not None: a["baseline"] = max(0, upd.baseline)
+    if upd.capacidade is not None: a["capacidade"] = max(1, upd.capacidade)
+    if upd.contexto is not None: a["contexto"] = upd.contexto
+    a["atualizado"] = int(_time.time())
+    c[cluster] = a
+    _cfg_save(c)
+    return {"ok": True, "cluster": cluster, "config": a}

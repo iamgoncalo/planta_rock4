@@ -1,170 +1,170 @@
-'use client';
-import { useEffect, useState, useCallback } from 'react';
+"use client";
+/* ============================================================================
+ *  PlantaOS · Rock in Rio Lisboa 2026  —  /v2/ambientes/rirstaff
+ *  Estado ao vivo + chat Gemini privado + PAINEL DE CALIBRACAO (password)
+ *  Substitui app/v2/ambientes/rirstaff/page.tsx  (frontend Next.js)
+ *  Sem scroll, estilo Planta (Inter, branco/ink/green/amber).
+ * ========================================================================== */
+import { useState, useEffect, useRef } from "react";
 
-type Casa = {
-  cluster: string; nome: string; genero: string; capacidade: number;
-  data_origin: string; online?: boolean; ocupacao?: number | null;
-  ocupacao_pct?: number | null; estado?: string; age_s?: number;
-  entradas_ir?: number | null; saidas_ir?: number | null; ocupacao_ir?: number | null;
-  pessoas_estimadas?: number | null; telemoveis_detectados?: number | null;
-  homens?: number | null; mulheres?: number | null;
-  confianca_cruzada?: number | null; estado_sensor?: string;
-  rssi_dbm?: number | null; fw?: string; mensagem?: string;
-  fontes?: Record<string, number>;
+const API = "https://api.plantarockinrio.com/api/v1";
+const INK = "#0D1A0F", GREEN = "#1B3A21", AMBER = "#C25A1A";
+const CHAT_KEY = "planta-rirstaff-chat-v1";
+
+type Cluster = {
+  cluster: string; nome: string; capacidade: number; ocupacao: number;
+  ocupacao_pct: number; estado: string; entradas_ir: number | null;
+  saidas_ir: number | null; online: boolean;
 };
+const cor = (e: string) => e === "cheio" ? AMBER : e === "quase" ? "#D98A3D" : e === "medio" ? "#7A9B5E" : GREEN;
 
-const API = 'https://api.plantarockinrio.com';
+export default function Page() {
+  const [clusters, setClusters] = useState<Cluster[]>([]);
+  const [msgs, setMsgs] = useState<{ role: string; text: string }[]>([]);
+  const [input, setInput] = useState("");
+  const [aEscrever, setAEscrever] = useState(false);
+  const [calibrar, setCalibrar] = useState(false);
+  const fim = useRef<HTMLDivElement>(null);
 
-function corEstado(estado?: string) {
-  if (estado === 'cheio') return '#C25A1A';
-  if (estado === 'quase cheio') return '#D08A4A';
-  if (estado === 'moderado') return '#4A7C59';
-  return '#6FAF82';
-}
-
-export default function RirStaffPage() {
-  const [casas, setCasas] = useState<Casa[]>([]);
-  const [ts, setTs] = useState<number>(0);
-  const [erro, setErro] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const r = await fetch(`${API}/api/v1/rirstaff`, { cache: 'no-store' });
-      const d = await r.json();
-      setCasas(d.casas_de_banho || []);
-      setTs(d.ts || Date.now() / 1000);
-      setErro(false);
-    } catch { setErro(true); }
-  }, []);
+  useEffect(() => { try { const h = localStorage.getItem(CHAT_KEY); if (h) setMsgs(JSON.parse(h)); } catch {} }, []);
+  useEffect(() => { try { localStorage.setItem(CHAT_KEY, JSON.stringify(msgs.slice(-30))); } catch {}; fim.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
 
   useEffect(() => {
-    load();
-    const i = setInterval(load, 1000); // ao segundo
-    return () => clearInterval(i);
-  }, [load]);
+    let on = true;
+    const f = async () => {
+      try { const r = await fetch(`${API}/rirstaff`); const d = await r.json();
+        if (on) setClusters(Array.isArray(d) ? d : (d.clusters || [])); } catch {}
+    };
+    f(); const t = setInterval(f, 2000); return () => { on = false; clearInterval(t); };
+  }, []);
 
-  const calibrar = async (cluster: string, valor: number) => {
-    await fetch(`${API}/api/v1/rirstaff/${cluster}/capacidade?valor=${valor}`, { method: 'POST' });
-    load();
+  const enviar = async () => {
+    const txt = input.trim(); if (!txt || aEscrever) return;
+    const novos = [...msgs, { role: "user", text: txt }];
+    setMsgs(novos); setInput(""); setAEscrever(true);
+    try {
+      const r = await fetch(`${API}/rirstaff/chat`, { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mensagem: txt, historico: novos.slice(-10) }) });
+      const d = await r.json();
+      setMsgs([...novos, { role: "model", text: d.resposta || "..." }]);
+    } catch { setMsgs([...novos, { role: "model", text: "Sem ligacao agora." }]); }
+    finally { setAEscrever(false); }
   };
 
   return (
-    <div className="rs-wrap">
-      <div className="rs-head">
-        <div>
-          <h1>Casas de banho · Staff</h1>
-          <p className="rs-sub">Rock in Rio Lisboa 2026 · contagem ao vivo · ocupação em tempo real</p>
+    <div style={{ fontFamily: "Inter, system-ui, sans-serif", color: INK, height: "100dvh",
+      display: "flex", flexDirection: "column", padding: 16, boxSizing: "border-box",
+      background: "#fff", overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+        <img src="/planta-logo.svg" alt="" width={32} height={32} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, fontSize: 18 }}>PlantaOS · Staff</div>
+          <div style={{ fontSize: 12, opacity: 0.6 }}>Casas de banho · tempo real</div>
         </div>
-        <div className="rs-live">
-          <span className={`rs-pulse ${casas.some(c => c.online) ? 'on' : ''}`} />
-          {casas.some(c => c.online) ? 'AO VIVO' : 'à espera dos sensores'}
-        </div>
+        <button onClick={() => setCalibrar(!calibrar)} style={{ border: "none", background: "transparent",
+          fontSize: 18, cursor: "pointer", opacity: 0.5 }} title="Calibrar">⚙</button>
       </div>
 
-      <div className="rs-grid">
-        {casas.map((c) => {
-          const real = c.data_origin === 'real';
-          const pct = c.ocupacao_pct ?? 0;
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+        {clusters.map((c) => {
+          const fluxo = (c.entradas_ir ?? 0) - (c.saidas_ir ?? 0);
           return (
-            <div key={c.cluster} className={`rs-card ${real ? 'real' : 'esperar'}`}>
-              <div className="rs-card-head">
-                <span className="rs-genero">{c.genero === 'M' ? '♂' : '♀'}</span>
-                <div>
-                  <div className="rs-nome">{c.nome}</div>
-                  <div className="rs-origem">
-                    {real
-                      ? <span className="rs-real">● REAL · {c.age_s != null ? Math.round(c.age_s) : '?'}s</span>
-                      : <span className="rs-esperar">◌ à espera do LilyGo</span>}
-                  </div>
-                </div>
+            <div key={c.cluster} style={{ border: `2px solid ${cor(c.estado)}`, borderRadius: 16, padding: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, opacity: 0.7 }}>{c.nome}</div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 4, margin: "4px 0" }}>
+                <span style={{ fontSize: 40, fontWeight: 800, color: cor(c.estado) }}>{c.ocupacao}</span>
+                <span style={{ fontSize: 18, opacity: 0.5 }}>/{c.capacidade}</span>
               </div>
-
-              {real ? (
-                <>
-                  <div className="rs-big">
-                    <span className="rs-ocup" style={{ color: corEstado(c.estado) }}>{c.ocupacao ?? '—'}</span>
-                    <span className="rs-cap">/ {c.capacidade}</span>
-                  </div>
-                  <div className="rs-estado" style={{ color: corEstado(c.estado) }}>{(c.estado || '').toUpperCase()}</div>
-                  <div className="rs-bar">
-                    <div className="rs-bar-fill" style={{ width: `${Math.min(100, pct)}%`, background: corEstado(c.estado) }} />
-                  </div>
-
-                  <div className="rs-kpis">
-                    <div className="rs-kpi"><span>Entradas</span><b>{c.entradas_ir ?? '—'}</b></div>
-                    <div className="rs-kpi"><span>Saídas</span><b>{c.saidas_ir ?? '—'}</b></div>
-                    <div className="rs-kpi"><span>Confiança</span><b>{c.confianca_cruzada != null ? Math.round(c.confianca_cruzada * 100) + '%' : '—'}</b></div>
-                    <div className="rs-kpi"><span>Sinal</span><b>{c.rssi_dbm != null ? c.rssi_dbm + ' dBm' : '—'}</b></div>
-                  </div>
-
-                  {(c.pessoas_estimadas != null || c.telemoveis_detectados != null || c.homens != null) && (
-                    <div className="rs-extra">
-                      {c.pessoas_estimadas != null && <span>câmara: {c.pessoas_estimadas}</span>}
-                      {c.telemoveis_detectados != null && <span>wifi: {c.telemoveis_detectados}</span>}
-                      {c.homens != null && <span>♂{c.homens} ♀{c.mulheres}</span>}
-                    </div>
-                  )}
-
-                  <div className="rs-cal">
-                    <span>capacidade</span>
-                    {[5, 6, 8, 10].map(v => (
-                      <button key={v} className={c.capacidade === v ? 'on' : ''} onClick={() => calibrar(c.cluster, v)}>{v}</button>
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <div className="rs-wait">
-                  <p>{c.mensagem || 'À espera do primeiro dado do LilyGo.'}</p>
-                  <p className="rs-wait-sub">Capacidade configurada: {c.capacidade} pessoas</p>
-                </div>
-              )}
+              <div style={{ height: 8, background: "#eee", borderRadius: 4, overflow: "hidden" }}>
+                <div style={{ width: `${Math.min(100, c.ocupacao_pct)}%`, height: "100%",
+                  background: cor(c.estado), transition: "width 0.6s ease" }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 12 }}>
+                <span style={{ fontWeight: 700, color: cor(c.estado), textTransform: "uppercase" }}>{c.estado}</span>
+                <span style={{ opacity: 0.6 }}>{c.online ? `fluxo ${fluxo >= 0 ? "+" : ""}${fluxo}` : "offline"}</span>
+              </div>
             </div>
           );
         })}
+        {clusters.length === 0 && <div style={{ gridColumn: "1/3", textAlign: "center", padding: 24, opacity: 0.5, fontSize: 13 }}>A carregar…</div>}
       </div>
 
-      {erro && <div className="rs-erro">Sem ligação ao servidor — a tentar de novo…</div>}
+      {calibrar
+        ? <PainelCalibrar clusters={clusters} onClose={() => setCalibrar(false)} />
+        : <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", border: "1px solid #eee", borderRadius: 16, overflow: "hidden" }}>
+            <div style={{ padding: "8px 14px", borderBottom: "1px solid #eee", fontSize: 13, fontWeight: 600 }}>Assistente PlantaOS</div>
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+              {msgs.length === 0 && <div style={{ opacity: 0.5, fontSize: 13, textAlign: "center", marginTop: 20 }}>Pergunta: "Posso ir a casa de banho agora?"</div>}
+              {msgs.map((m, i) => (
+                <div key={i} style={{ alignSelf: m.role === "user" ? "flex-end" : "flex-start", maxWidth: "80%",
+                  padding: "8px 12px", borderRadius: 14, fontSize: 14, lineHeight: 1.4,
+                  background: m.role === "user" ? GREEN : "#f2f2f2", color: m.role === "user" ? "#fff" : INK }}>{m.text}</div>
+              ))}
+              {aEscrever && <div style={{ alignSelf: "flex-start", opacity: 0.5, fontSize: 13 }}>a escrever…</div>}
+              <div ref={fim} />
+            </div>
+            <div style={{ display: "flex", gap: 8, padding: 10, borderTop: "1px solid #eee" }}>
+              <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && enviar()}
+                placeholder="Escreve aqui…" style={{ flex: 1, padding: "10px 14px", borderRadius: 12, border: "1px solid #ddd", fontSize: 14, fontFamily: "inherit", outline: "none" }} />
+              <button onClick={enviar} disabled={aEscrever} style={{ padding: "10px 18px", borderRadius: 12, border: "none", background: GREEN, color: "#fff", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Enviar</button>
+            </div>
+          </div>
+      }
+    </div>
+  );
+}
 
-      <style jsx>{`
-        .rs-wrap { max-width: 1100px; margin: 0 auto; padding: 24px; font-family: 'Inter', system-ui, sans-serif; color: #0D1A0F; }
-        .rs-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
-        h1 { font-size: clamp(22px, 3vw, 32px); margin: 0; font-weight: 600; }
-        .rs-sub { color: #6B756C; font-size: 14px; margin: 4px 0 0; }
-        .rs-live { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 700; letter-spacing: .05em; color: #6B756C; text-transform: uppercase; }
-        .rs-pulse { width: 9px; height: 9px; border-radius: 50%; background: #C9CEC4; }
-        .rs-pulse.on { background: #1B7A3D; box-shadow: 0 0 0 4px rgba(27,122,61,.18); animation: pulse 1.6s infinite; }
-        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
-        .rs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .rs-card { border: 1px solid #E5E8E0; border-radius: 18px; padding: 22px; background: #fff; }
-        .rs-card.real { border-left: 4px solid #1B7A3D; }
-        .rs-card.esperar { border-left: 4px dashed #C9CEC4; background: #FAFBF9; }
-        .rs-card-head { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
-        .rs-genero { font-size: 34px; line-height: 1; color: #1B3A21; }
-        .rs-nome { font-size: 17px; font-weight: 600; }
-        .rs-origem { font-size: 11px; margin-top: 2px; }
-        .rs-real { color: #1B7A3D; font-weight: 700; }
-        .rs-esperar { color: #8A938B; }
-        .rs-big { display: flex; align-items: baseline; gap: 8px; margin: 8px 0 2px; }
-        .rs-ocup { font-size: clamp(48px, 9vw, 76px); font-weight: 700; line-height: 1; }
-        .rs-cap { font-size: 26px; color: #8A938B; font-weight: 500; }
-        .rs-estado { font-size: 13px; font-weight: 700; letter-spacing: .06em; margin-bottom: 12px; }
-        .rs-bar { height: 8px; background: #F0F2EC; border-radius: 99px; overflow: hidden; margin-bottom: 16px; }
-        .rs-bar-fill { height: 100%; border-radius: 99px; transition: width .5s ease; }
-        .rs-kpis { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-        .rs-kpi { background: #F7F9F5; border-radius: 10px; padding: 8px 6px; text-align: center; }
-        .rs-kpi span { display: block; font-size: 10px; color: #8A938B; text-transform: uppercase; letter-spacing: .03em; }
-        .rs-kpi b { font-size: 16px; }
-        .rs-extra { display: flex; gap: 12px; font-size: 12px; color: #4A7C59; margin-bottom: 14px; }
-        .rs-cal { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #8A938B; }
-        .rs-cal span { margin-right: 4px; text-transform: uppercase; letter-spacing: .03em; }
-        .rs-cal button { border: 1px solid #E5E8E0; background: #fff; border-radius: 8px; padding: 5px 11px; cursor: pointer; font-family: inherit; font-size: 13px; }
-        .rs-cal button.on { background: #1B3A21; color: #fff; border-color: #1B3A21; font-weight: 600; }
-        .rs-wait { padding: 24px 4px; text-align: center; color: #8A938B; }
-        .rs-wait p { margin: 4px 0; }
-        .rs-wait-sub { font-size: 12px; }
-        .rs-erro { margin-top: 16px; padding: 10px; background: #FFF6ED; border: 1px solid #F0D9BE; border-radius: 10px; color: #7A4A1E; font-size: 13px; text-align: center; }
-        @media (max-width: 720px) { .rs-grid { grid-template-columns: 1fr; } }
-      `}</style>
+/* ===== Painel de calibracao remota (password) ===== */
+function PainelCalibrar({ clusters, onClose }: { clusters: Cluster[]; onClose: () => void }) {
+  const [pass, setPass] = useState("");
+  const [cluster, setCluster] = useState("rirstaff-f");
+  const [raio, setRaio] = useState(5);
+  const [divisor, setDivisor] = useState(3);
+  const [baseline, setBaseline] = useState(0);
+  const [cap, setCap] = useState(8);
+  const [msg, setMsg] = useState("");
+
+  const guardar = async () => {
+    setMsg("a guardar…");
+    try {
+      const r = await fetch(`${API}/rirstaff/config/${cluster}`, { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: pass, raio_m: raio, divisor, baseline, capacidade: cap }) });
+      if (r.status === 401) { setMsg("Password errada"); return; }
+      const d = await r.json();
+      setMsg(d.ok ? "Guardado! O sensor aplica no proximo ciclo (~7s)." : "Erro");
+    } catch { setMsg("Sem ligacao"); }
+  };
+  const campo = (label: string, val: number, set: (n: number) => void, min: number, max: number) => (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+        <span>{label}</span><strong>{val}</strong>
+      </div>
+      <input type="range" min={min} max={max} value={val} onChange={(e) => set(+e.target.value)} style={{ width: "100%" }} />
+    </div>
+  );
+  return (
+    <div style={{ flex: 1, minHeight: 0, overflowY: "auto", border: "1px solid #eee", borderRadius: 16, padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+        <strong style={{ fontSize: 15 }}>Calibrar sensor</strong>
+        <button onClick={onClose} style={{ border: "none", background: "transparent", cursor: "pointer", opacity: 0.5 }}>✕</button>
+      </div>
+      <select value={cluster} onChange={(e) => setCluster(e.target.value)} style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid #ddd", marginBottom: 12, fontSize: 14 }}>
+        <option value="rirstaff-f">Mulheres</option>
+        <option value="rirstaff-m">Homens</option>
+      </select>
+      {campo("Raio (metros)", raio, setRaio, 1, 20)}
+      {campo("Divisor (dispositivos por pessoa)", divisor, setDivisor, 1, 6)}
+      {campo("Baseline (ruido a subtrair)", baseline, setBaseline, 0, 40)}
+      {campo("Capacidade", cap, setCap, 1, 30)}
+      <input type="password" value={pass} onChange={(e) => setPass(e.target.value)} placeholder="Password"
+        style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid #ddd", marginBottom: 10, fontSize: 14, boxSizing: "border-box" }} />
+      <button onClick={guardar} style={{ width: "100%", padding: 12, borderRadius: 10, border: "none", background: GREEN, color: "#fff", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Guardar calibracao</button>
+      {msg && <div style={{ marginTop: 10, fontSize: 13, textAlign: "center", color: msg.includes("errada") || msg.includes("Erro") ? AMBER : GREEN }}>{msg}</div>}
+      <div style={{ marginTop: 12, fontSize: 12, opacity: 0.6, lineHeight: 1.5 }}>
+        Dica: com a casa de banho vazia, vê quantas "pessoas" mostra. Mete esse valor × divisor no <strong>baseline</strong> para passar a mostrar 0.
+      </div>
     </div>
   );
 }
