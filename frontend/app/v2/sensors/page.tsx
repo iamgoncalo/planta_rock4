@@ -27,7 +27,7 @@ function statusColor(s:string){return s==='online'?'#4A7C59':s==='degraded'?'#C2
 function statusLabel(s:string){return ({online:'Online',degraded:'Instável',offline:'Offline','sem-dados':'Sem dados',planned:'Planeado'} as any)[s]||s;}
 
 type Env = {id:string; nome:string; modo:string; refresh_ms:number; fixo?:boolean; n_sensores?:number};
-type Sensor = {id:string; tipo:string; cluster?:string|null; status?:string; label?:string; battery?:{pct:number;fonte:string}; rssi_dbm?:number; uptime_s?:number; origem?:string};
+type Sensor = {id:string; tipo:string; cluster?:string|null; status?:string; label?:string; battery?:{pct:number;fonte:string}; rssi_dbm?:number; uptime_s?:number; origem?:string; data_origin?:string; age_s?:number};
 
 export default function SensorsPage(){
   const [envs,setEnvs]=useState<Env[]>([]);
@@ -126,11 +126,12 @@ export default function SensorsPage(){
 
   const stats=useMemo(()=>{
     const total=sensors.length;
-    const on=sensors.filter(s=>s.status==='online').length;
+    const reais=sensors.filter(s=>s.data_origin==='real').length;
+    const sim=sensors.filter(s=>s.data_origin==='simulado').length;
+    const mudos=sensors.filter(s=>s.data_origin==='real-mudo').length;
     const bats=sensors.filter(s=>s.battery).map(s=>s.battery!.pct);
     const batAvg=bats.length?Math.round(bats.reduce((a,b)=>a+b,0)/bats.length):null;
-    const off=sensors.filter(s=>s.status==='offline'||s.status==='sem-dados').length;
-    return {total,on,off,batAvg};
+    return {total,reais,sim,mudos,batAvg};
   },[sensors]);
 
   // adicionar sensor
@@ -233,10 +234,20 @@ export default function SensorsPage(){
       {/* KPIs */}
       <div className="sn-kpis">
         <div className="sn-kpi"><b>{stats.total}</b><span>sensores neste ambiente</span></div>
-        <div className="sn-kpi"><b style={{color:'#4A7C59'}}>{stats.on}</b><span>online agora</span></div>
-        <div className="sn-kpi"><b style={{color:stats.off>0?'#C25A1A':'#0D1A0F'}}>{stats.off}</b><span>sem resposta</span></div>
-        <div className="sn-kpi"><b>{stats.batAvg!=null?stats.batAvg+'%':'—'}</b><span>bateria média</span></div>
+        <div className="sn-kpi sn-kpi-real"><b>{stats.reais}</b><span>REAIS (dados verdadeiros)</span></div>
+        <div className="sn-kpi sn-kpi-sim"><b>{stats.sim}</b><span>simulados (demo)</span></div>
+        <div className="sn-kpi"><b style={{color:stats.mudos>0?'#C25A1A':'#0D1A0F'}}>{stats.mudos}</b><span>reais sem transmitir</span></div>
       </div>
+      {stats.total>0 && stats.reais===0 && (
+        <div className="sn-banner">
+          <b>Nenhum sensor real ligado.</b> Tudo o que vês abaixo é <b>simulado</b> (demonstração). Quando ligares um sensor físico que transmita, ele aparece marcado como REAL.
+        </div>
+      )}
+      {stats.reais>0 && stats.sim>0 && (
+        <div className="sn-banner sn-banner-mix">
+          <b>{stats.reais} sensor(es) REAL a transmitir</b> · os restantes {stats.sim} são simulados. Os reais estão marcados com selo cheio.
+        </div>
+      )}
 
       {/* AÇÕES */}
       <div className="sn-actions">
@@ -267,7 +278,7 @@ export default function SensorsPage(){
         )}
         <div className="sn-grid">
           {sensors.map(s=>(
-            <button key={s.id} className={`sn-card ${selSensor?.id===s.id?'sel':''} st-${s.status||'unknown'}`} onClick={()=>setSelSensor(s)}>
+            <button key={s.id} className={`sn-card ${selSensor?.id===s.id?'sel':''} st-${s.status||'unknown'} origin-${s.data_origin||'simulado'}`} onClick={()=>setSelSensor(s)}>
               <div className="sn-card-top">
                 <span className="sn-dot" style={{background:statusColor(s.status||'')}}/>
                 <span className="sn-card-tipo">{tipoLabel(s.tipo)}</span>
@@ -275,6 +286,11 @@ export default function SensorsPage(){
               </div>
               <div className="sn-card-id">{s.label||s.id}</div>
               {s.label && s.id!==s.label && <div className="sn-card-sub">{s.id}</div>}
+              <div className="sn-origin-badge">
+                {s.data_origin==='real'?<span className="ob ob-real">● REAL{s.age_s!=null?` · ${Math.round(s.age_s)}s`:''}</span>
+                 :s.data_origin==='real-mudo'?<span className="ob ob-mudo">○ real (mudo)</span>
+                 :<span className="ob ob-sim">◌ SIMULADO</span>}
+              </div>
               <div className="sn-card-bot">
                 <span className="sn-card-st">{statusLabel(s.status||'sem-dados')}</span>
                 {s.battery && (
@@ -302,6 +318,13 @@ export default function SensorsPage(){
               <button className="sn-x" onClick={()=>setSelSensor(null)}>&times;</button>
             </div>
 
+            {selSensor.data_origin==='real'?(
+              <div className="sn-origin-box real">Dados REAIS — última transmissão há {selSensor.age_s!=null?Math.round(selSensor.age_s):'?'}s</div>
+            ):selSensor.data_origin==='real-mudo'?(
+              <div className="sn-origin-box mudo">Sensor real configurado, mas SEM TRANSMITIR. À espera de dados do hardware.</div>
+            ):(
+              <div className="sn-origin-box sim">Dados SIMULADOS — este sensor não está fisicamente ligado.</div>
+            )}
             {detail ? (
               detail.erro ? <p className="sn-soft">Sem detalhe disponível.</p> :
               <div className="sn-dr-rows">
@@ -576,6 +599,24 @@ export default function SensorsPage(){
         .sn-tec{font-size:11px;color:#8A938B;text-decoration:none;}
         .sn-tec:hover{color:#1B3A21;}
 
+        .sn-kpi-real b{color:#1B7A3D!important;}
+        .sn-kpi-real{border-color:#B8E0C4;background:linear-gradient(180deg,#F2FBF5,#fff);}
+        .sn-kpi-sim b{color:#8A938B!important;}
+        .sn-banner{margin-top:12px;padding:11px 14px;border-radius:10px;font-size:13px;background:#FFF6ED;border:1px solid #F0D9BE;color:#7A4A1E;}
+        .sn-banner-mix{background:#F2FBF5;border-color:#B8E0C4;color:#1B5A2E;}
+        .sn-origin-badge{margin-top:2px;}
+        .ob{font-size:10px;font-weight:700;letter-spacing:.03em;padding:1px 6px;border-radius:4px;}
+        .ob-real{color:#1B7A3D;background:#E2F5E9;}
+        .ob-mudo{color:#C25A1A;background:#F8EADB;}
+        .ob-sim{color:#8A938B;background:#F0F2EC;}
+        .sn-card.origin-real{border-left:3px solid #1B7A3D;}
+        .sn-card.origin-real .sn-dot{box-shadow:0 0 0 2px rgba(27,122,61,.25),0 0 8px rgba(27,122,61,.5);}
+        .sn-card.origin-simulado{border-left:3px dashed #C9CEC4;}
+        .sn-card.origin-real-mudo{border-left:3px solid #C25A1A;}
+        .sn-origin-box{margin-top:14px;padding:10px 12px;border-radius:8px;font-size:12.5px;font-weight:600;}
+        .sn-origin-box.real{background:#E2F5E9;color:#1B7A3D;}
+        .sn-origin-box.mudo{background:#F8EADB;color:#C25A1A;}
+        .sn-origin-box.sim{background:#F0F2EC;color:#8A938B;}
         .sn-add-sec{background:#fff;color:#1B3A21;border:1px solid #1B3A21;border-radius:10px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;}
         .sn-add-sec:hover{background:#F0F5F1;}
         .sn-add-sec:disabled{color:#C9CEC4;border-color:#E5E8E0;cursor:not-allowed;}
