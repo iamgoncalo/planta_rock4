@@ -1,5 +1,5 @@
-from app.routers import rirstaff
 from __future__ import annotations
+from app.routers import rirstaff
 import asyncio
 import json
 import logging
@@ -162,7 +162,7 @@ def create_app() -> FastAPI:
     app.include_router(telemetry_router)
     app.include_router(cleaning_calendar_router)
     app.include_router(forecast_router)
-app.include_router(rirstaff.router)
+    app.include_router(rirstaff.router)
 
     # WebSocket: broadcasts live payload every 5s to connected clients
     @app.websocket("/api/v1/ws")

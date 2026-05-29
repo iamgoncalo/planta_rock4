@@ -19,9 +19,7 @@ const NAV: NavItem[] = [
   { href: '/v2/twin',       label: 'Twin',       hint: 'G T' },
   { href: '/v2/sensors',    label: 'Sensores',   hint: 'G S' },
   { href: '/v2/shows',      label: 'Shows',      hint: 'G W' },
-  { href: '/v2/operations', label: 'Operações',  hint: 'G O' },
   { href: '/v2/cleaning',   label: 'Limpeza',    hint: 'G L' },
-  { href: '/v2/incidents',  label: 'Incidentes', hint: 'G I' },
   { href: '/v2/scor',       label: 'SCOR',       hint: 'G C' },
 ];
 
