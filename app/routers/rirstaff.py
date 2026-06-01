@@ -20,7 +20,7 @@ ESQUEMA CANONICO (recomendado, o que o LilyGo envia):
 """
 from __future__ import annotations
 import time, threading
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Header
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/v1", tags=["rirstaff"])
@@ -135,7 +135,11 @@ def _fusao(cluster: str, p: dict) -> dict:
 
 
 @router.post("/ingest_staff/{cluster}")
-async def ingest(cluster: str, body: IngestIn):
+async def ingest(cluster: str, body: IngestIn, x_sensor_token: str | None = Header(default=None)):
+    import os as _os_tok
+    _tok = _os_tok.getenv("RIRSTAFF_INGEST_TOKEN")
+    if _tok and x_sensor_token != _tok:
+        raise HTTPException(401, "token invalido")
     cluster = (cluster or body.cluster_id or body.cluster or "").lower()
     if not cluster:
         raise HTTPException(400, "cluster_id em falta")
