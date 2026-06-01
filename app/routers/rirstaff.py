@@ -34,24 +34,6 @@ STAFF = {
 _LIVE: dict[str, dict] = {}
 _RESET_OFFSET: dict[str, dict] = {}
 
-# === ROBUSTEZ_PLANTA_v1 ===
-def _si(v, default=None):
-    """int seguro: nunca rebenta, seja qual for o lixo que venha do sensor."""
-    try:
-        if v is None: return default
-        return int(float(v))
-    except (TypeError, ValueError):
-        return default
-
-def _age_legivel(age_s: float) -> str:
-    a = int(age_s)
-    if a < 60:   return f"sem transmitir ha {a}s"
-    if a < 3600: return f"offline ha {a//60} min"
-    if a < 86400:return f"offline ha {a//3600}h"
-    return f"offline ha {a//86400} dia(s)"
-# === FIM ROBUSTEZ_PLANTA_v1 ===
-
-
 
 class IngestIn(BaseModel):
     # esquema canonico
@@ -158,59 +140,37 @@ async def ingest(cluster: str, body: IngestIn):
     if not cluster:
         raise HTTPException(400, "cluster_id em falta")
     t = time.time()
-    try:
-        p = _normaliza(body)
-    except Exception:
-        p = dict(body.params or {})
+    p = _normaliza(body)
     with _LOCK:
         _LIVE[cluster] = {"params": p, "ts_server": t}
-        cap_in = _si(body.capacidade)
-        if cap_in and cluster in STAFF:
-            STAFF[cluster]["capacidade"] = cap_in
-    try:
-        f = _fusao(cluster, p)
-        return {"ok": True, "ocupacao": f["ocupacao"], "estado": f["estado"],
-                "capacidade": f["capacidade"], "confianca_cruzada": f["confianca_cruzada"], "ts": t}
-    except Exception:
-        # guardou o dado; se a fusao falhar, ainda confirma rececao
-        return {"ok": True, "ocupacao": None, "estado": "—", "ts": t}
+        if body.capacidade and cluster in STAFF:
+            STAFF[cluster]["capacidade"] = int(body.capacidade)
+    f = _fusao(cluster, p)
+    return {"ok": True, "ocupacao": f["ocupacao"], "estado": f["estado"],
+            "capacidade": f["capacidade"], "confianca_cruzada": f["confianca_cruzada"], "ts": t}
 
 
 def _snapshot(cluster: str) -> dict:
+    rec = _LIVE.get(cluster)
     cfg = STAFF.get(cluster, {"nome": cluster, "genero": "?", "capacidade": 8})
-    try:
-        rec = _LIVE.get(cluster)
-        if not rec:
-            return {"cluster": cluster, "nome": cfg["nome"], "genero": cfg["genero"],
-                    "capacidade": cfg["capacidade"], "data_origin": "sem-dados",
-                    "online": False, "ocupacao": None,
-                    "mensagem": "À espera do LilyGo — nenhum dado recebido ainda"}
-        age = time.time() - rec["ts_server"]
-        f = _fusao(cluster, rec["params"])
-        f["data_origin"] = "real"
-        f["online"] = age < 30
-        f["age_s"] = round(age, 1)
-        f["local"] = rec["params"].get("local")
-        if age >= 30:
-            f["mensagem"] = _age_legivel(age) + " — verificar LilyGo/WiFi/powerbank"
-        return f
-    except Exception as e:
-        # NUNCA rebentar: devolver estado seguro mesmo com dados corrompidos
-        return {"cluster": cluster, "nome": cfg.get("nome", cluster),
-                "genero": cfg.get("genero", "?"), "capacidade": cfg.get("capacidade", 8),
-                "data_origin": "erro", "online": False, "ocupacao": None,
-                "mensagem": "Erro a ler dados do sensor — a recuperar"}
+    if not rec:
+        return {"cluster": cluster, "nome": cfg["nome"], "genero": cfg["genero"],
+                "capacidade": cfg["capacidade"], "data_origin": "sem-dados",
+                "online": False, "ocupacao": None,
+                "mensagem": "À espera do LilyGo — nenhum dado recebido ainda"}
+    age = time.time() - rec["ts_server"]
+    f = _fusao(cluster, rec["params"])
+    f["data_origin"] = "real"
+    f["online"] = age < 30
+    f["age_s"] = round(age, 1)
+    if age >= 30:
+        f["mensagem"] = f"Sem transmitir há {int(age)}s — verificar LilyGo/WiFi"
+    return f
 
 
 @router.get("/rirstaff")
 async def rirstaff_all():
-    casas = []
-    for c in STAFF:
-        try:
-            casas.append(_snapshot(c))
-        except Exception:
-            casas.append({"cluster": c, "data_origin": "erro", "online": False, "ocupacao": None})
-    return {"casas_de_banho": casas, "ts": time.time()}
+    return {"casas_de_banho": [_snapshot(c) for c in STAFF], "ts": time.time()}
 
 
 @router.get("/rirstaff/{cluster}")
@@ -241,26 +201,6 @@ async def reset_counters(cluster: str):
             _RESET_OFFSET[cluster] = {"entradas": int(p.get("entradas_ir", 0)),
                                       "saidas": int(p.get("saidas_ir", 0))}
     return {"cluster": cluster, "reset": True}
-
-
-
-@router.get("/rirstaff/health")
-async def rirstaff_health():
-    """Diagnostico rapido de toda a plataforma staff."""
-    agora = time.time()
-    estado = []
-    for c in STAFF:
-        rec = _LIVE.get(c)
-        if not rec:
-            estado.append({"cluster": c, "estado": "nunca-recebido", "online": False})
-        else:
-            age = agora - rec["ts_server"]
-            estado.append({"cluster": c, "estado": "online" if age < 30 else "offline",
-                           "online": age < 30, "age_s": round(age, 1),
-                           "ultima_ocupacao": _LIVE[c]["params"].get("ocupacao_instantanea")})
-    n_online = sum(1 for e in estado if e["online"])
-    return {"plataforma": "ok", "sensores_total": len(STAFF),
-            "sensores_online": n_online, "sensores": estado, "ts": agora}
 
 # ============================================================================
 # CALIBRACAO REMOTA — adicionado para PlantaOS Staff (calibrar sem cabo)
