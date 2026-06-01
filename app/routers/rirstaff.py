@@ -230,6 +230,8 @@ def _cfg_save(c):
     except Exception: pass
 
 @router.get("/rirstaff/config/{cluster}")
+_CLUSTERS_VALIDOS = ("rirstaff-f", "rirstaff-m")
+
 def rirstaff_get_config(cluster: str):
     c = _cfg_load()
     return c.get(cluster, _CFG_DEFAULT.get(cluster, _CFG_DEFAULT["rirstaff-f"]))
@@ -244,6 +246,8 @@ class _CfgUpd(_BaseModel):
 
 @router.post("/rirstaff/config/{cluster}")
 def rirstaff_set_config(cluster: str, upd: _CfgUpd):
+    if cluster not in _CLUSTERS_VALIDOS:
+        raise _HTTPException(status_code=404, detail="cluster desconhecido")
     if upd.password != _ADMIN_PASS:
         raise _HTTPException(status_code=401, detail="Password errada")
     c = _cfg_load()
