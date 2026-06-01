@@ -207,6 +207,7 @@ async def reset_counters(cluster: str):
     return {"cluster": cluster, "reset": True}
 
 # ============================================================================
+_CLUSTERS_VALIDOS = ("rirstaff-f", "rirstaff-m")
 # CALIBRACAO REMOTA — adicionado para PlantaOS Staff (calibrar sem cabo)
 # O sensor le GET /rirstaff/config/{cluster}; tu mudas com POST (password).
 # ============================================================================
@@ -230,7 +231,6 @@ def _cfg_save(c):
     except Exception: pass
 
 @router.get("/rirstaff/config/{cluster}")
-_CLUSTERS_VALIDOS = ("rirstaff-f", "rirstaff-m")
 
 def rirstaff_get_config(cluster: str):
     c = _cfg_load()
