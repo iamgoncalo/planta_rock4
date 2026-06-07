@@ -12,6 +12,7 @@ export interface PanelData {
   ts: number;
   state: ClusterState;
   worst: number;
+  live: boolean;
 }
 
 export interface RawClusterParams {

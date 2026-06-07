@@ -53,3 +53,9 @@
   .barFill { transition: none; }
   .barPct { transition: none; }
 }
+
+@keyframes livePulse {
+  0%   { box-shadow: 0 0 0 0 rgba(106,141,85,0.6); }
+  70%  { box-shadow: 0 0 0 0.9vh rgba(106,141,85,0); }
+  100% { box-shadow: 0 0 0 0 rgba(106,141,85,0); }
+}

@@ -7,7 +7,7 @@ import type { ClusterId, PanelData } from '@/lib/mural-types';
 import { fetchMuralData } from '@/lib/mural-data';
 
 const CLUSTER_ORDER: ClusterId[] = ['01', '02', '03', '04', '05', '06', '07', '08'];
-const POLL_MS = 5000;
+const POLL_MS = 2000;
 
 export default function ScreenPage() {
   const [panels, setPanels] = useState<Map<ClusterId, PanelData>>(new Map());

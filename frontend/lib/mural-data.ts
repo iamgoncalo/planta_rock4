@@ -45,6 +45,7 @@ export async function fetchMuralData(): Promise<PanelData[]> {
       ts: c.ts,
       state,
       worst,
+      live: (p.estado_sensor ?? '') !== 'offline' && (p.confianca_cruzada ?? 0) > 0,
     };
   });
 }

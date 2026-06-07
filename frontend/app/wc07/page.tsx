@@ -7,7 +7,7 @@ import type { ClusterId, PanelData } from '@/lib/mural-types';
 import { fetchMuralData } from '@/lib/mural-data';
 
 const ID: ClusterId = '07';
-const POLL_MS = 5000;
+const POLL_MS = 2000;
 
 export default function Wc07Page() {
   const [panelData, setPanelData] = useState<PanelData | null>(null);

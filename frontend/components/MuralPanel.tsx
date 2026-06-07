@@ -270,6 +270,21 @@ export default function MuralPanel({
           aria-live="polite"
           aria-atomic="true"
         >
+          <span
+            aria-hidden="true"
+            style={{
+              display: 'inline-block',
+              width: isSolo ? '0.9vh' : '0.7vh',
+              height: isSolo ? '0.9vh' : '0.7vh',
+              borderRadius: '50%',
+              marginRight: '0.6em',
+              verticalAlign: 'middle',
+              background: data?.live ? '#6A8D55' : AMBER,
+              boxShadow: data?.live ? '0 0 0 0 rgba(106,141,85,0.7)' : 'none',
+              animation: data?.live ? 'livePulse 1.6s ease-out infinite' : 'none',
+              opacity: data?.live ? 1 : 0.55,
+            }}
+          />
           {data === null
             ? '—'
             : data.wait_min === 0
