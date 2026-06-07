@@ -57,9 +57,7 @@ export default function TVScreen({ params }: { params: { screen_id: string } }) 
     <main style={{ minHeight: '100vh', background: '#FAFAF7', color: '#1A1A1A', padding: '64px', fontFamily: 'system-ui, sans-serif', display: 'flex', flexDirection: 'column' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '64px' }}>
         <div style={{ fontSize: '32px', fontWeight: 600 }}>{screenId}</div>
-        {state.any_simulated && (
-          <div style={{ fontSize: '24px', padding: '8px 24px', background: '#1A1A1A', color: '#FAFAF7', borderRadius: '999px', fontWeight: 500 }}>SIMULADO</div>
-        )}
+        {/* any_simulated intencionalmente omitido — label proibida em ecrã público */}
       </header>
 
       <section style={{ textAlign: 'center', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>

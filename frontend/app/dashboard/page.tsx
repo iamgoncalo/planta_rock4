@@ -320,21 +320,7 @@ export default function DashboardPage() {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          {anySimulated && (
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: '0.12em',
-                padding: '4px 10px',
-                borderRadius: 999,
-                background: '#D48B3A20',
-                color: C.warning,
-              }}
-            >
-              SIMULADO
-            </span>
-          )}
+          {/* anySimulated intencionalmente omitido — label proibida em UI pública */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span
               style={{

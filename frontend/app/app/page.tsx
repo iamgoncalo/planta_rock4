@@ -79,9 +79,7 @@ export default function PublicApp() {
     <main style={{ minHeight: '100vh', background: '#FAFAF7', color: '#1A1A1A', padding: '24px', fontFamily: 'system-ui, sans-serif', display: 'flex', flexDirection: 'column' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
         <div style={{ fontSize: '20px', fontWeight: 600 }}>Planta · Rock in Rio</div>
-        {route.any_simulated && (
-          <div style={{ fontSize: '14px', padding: '4px 12px', background: '#1A1A1A', color: '#FAFAF7', borderRadius: '999px', fontWeight: 500 }}>SIMULADO</div>
-        )}
+        {/* any_simulated intencionalmente omitido — label proibida em UI pública */}
       </header>
 
       <section style={{ textAlign: 'center', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
