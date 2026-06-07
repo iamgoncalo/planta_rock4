@@ -107,6 +107,7 @@ interface MuralPanelProps {
   data: PanelData | null;
   mode: 'mural' | 'solo';
   staggerDelayMs?: number;
+  copy?: { pt: string; en: string } | null;
 }
 
 export default function MuralPanel({
@@ -114,6 +115,7 @@ export default function MuralPanel({
   data,
   mode,
   staggerDelayMs = 0,
+  copy,
 }: MuralPanelProps) {
   const isSolo = mode === 'solo';
   const meta = CLUSTER_META[id];
@@ -132,15 +134,33 @@ export default function MuralPanel({
 
   // Initialize first phrase
   useEffect(() => {
-    if (!data || msg !== null) return;
-    const phrase = getPhrase(id, data.state, 0);
-    msgStateRef.current = { state: data.state, idx: 0 };
-    setMsg(phrase);
-  }, [data, id, msg]);
+    if (msg !== null) return;
+    if (copy != null) {
+      setMsg([copy.pt, copy.en]);
+    } else if (data) {
+      const phrase = getPhrase(id, data.state, 0);
+      msgStateRef.current = { state: data.state, idx: 0 };
+      setMsg(phrase);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, id, msg, copy?.pt, copy?.en]);
 
-  // Start rotation after stagger
+  // Update phrase when copy prop changes (backend rotation via now_ms)
   useEffect(() => {
-    if (msg === null || timerStartedRef.current) return;
+    if (copy == null) return;
+    if (msg && msg[0] === copy.pt) return;
+    setFadingOut(true);
+    const t = setTimeout(() => {
+      setMsg([copy.pt, copy.en]);
+      setFadingOut(false);
+    }, FADE_MS);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [copy?.pt, copy?.en]);
+
+  // Start rotation after stagger (only when not driven by copy prop)
+  useEffect(() => {
+    if (msg === null || timerStartedRef.current || copy !== undefined) return;
     timerStartedRef.current = true;
 
     let intervalId: ReturnType<typeof setInterval>;

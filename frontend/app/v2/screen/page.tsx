@@ -3,20 +3,22 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import MuralPanel from '@/components/MuralPanel';
-import type { ClusterId, PanelData } from '@/lib/mural-types';
-import { fetchMuralData } from '@/lib/mural-data';
+import type { ClusterId, PanelData, ScreenCopyMap } from '@/lib/mural-types';
+import { fetchMuralData, fetchScreenCopy, pickClusterCopy } from '@/lib/mural-data';
 
 const CLUSTER_ORDER: ClusterId[] = ['01', '02', '03', '04', '05', '06', '07', '08'];
 const POLL_MS = 2000;
 
 export default function ScreenPage() {
   const [panels, setPanels] = useState<Map<ClusterId, PanelData>>(new Map());
+  const [copyMap, setCopyMap] = useState<ScreenCopyMap>({});
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = async () => {
     try {
-      const data = await fetchMuralData();
+      const [data, copy] = await Promise.all([fetchMuralData(), fetchScreenCopy()]);
       setPanels(new Map(data.map((p) => [p.id, p])));
+      setCopyMap(copy);
     } catch {
       // keep last known state; offline indicator via null data
     }
@@ -70,6 +72,7 @@ export default function ScreenPage() {
               data={panels.get(id) ?? null}
               mode="mural"
               staggerDelayMs={idx * 1300}
+              copy={pickClusterCopy(id, panels.get(id) ?? null, copyMap)}
             />
           </Link>
         ))}

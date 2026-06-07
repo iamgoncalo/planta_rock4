@@ -1,7 +1,35 @@
-import type { PanelData, ClusterId, ClusterState, TelemetryResponse } from './mural-types';
+import type { PanelData, ClusterId, ClusterState, TelemetryResponse, ScreenCopyMap, SectionCopy } from './mural-types';
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || 'https://api.plantarockinrio.com';
+
+export async function fetchScreenCopy(): Promise<ScreenCopyMap> {
+  const res = await fetch(`${API_BASE}/api/v1/screen/copy`, {
+    cache: 'no-store',
+    next: { revalidate: 0 },
+  });
+  if (!res.ok) throw new Error(`screen copy fetch failed: ${res.status}`);
+  return res.json();
+}
+
+export function pickClusterCopy(
+  id: ClusterId,
+  data: PanelData | null,
+  copyMap: ScreenCopyMap,
+): { pt: string; en: string } | null {
+  if (!data) return null;
+  if (data.isUnissex) {
+    const u = copyMap[`wc-${id}_u`];
+    return u ? { pt: u.pt, en: u.en } : null;
+  }
+  const m = copyMap[`wc-${id}_m`] as SectionCopy | undefined;
+  const f = copyMap[`wc-${id}_f`] as SectionCopy | undefined;
+  if (!m && !f) return null;
+  if (!m) return { pt: f!.pt, en: f!.en };
+  if (!f) return { pt: m.pt, en: m.en };
+  const src = data.M_pct >= data.F_pct ? m : f;
+  return { pt: src.pt, en: src.en };
+}
 
 export async function fetchMuralData(): Promise<PanelData[]> {
   const res = await fetch(`${API_BASE}/api/v1/telemetry/clusters/now`, {

@@ -43,6 +43,8 @@ from app.routers.sensor_cmd import router as sensor_cmd_router
 from app.routers.envs import router as envs_router
 from app.routers.fusion import router as fusion_router
 from app.routers.intelligence import router as intelligence_router
+from app.routers.flow import router as flow_router
+from app.routers.screen import router as screen_router
 
 logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
@@ -152,6 +154,8 @@ def create_app() -> FastAPI:
     app.include_router(envs_router)
     app.include_router(fusion_router)
     app.include_router(intelligence_router)
+    app.include_router(flow_router)
+    app.include_router(screen_router)
     app.include_router(cleaning_router)
     app.include_router(staff_router)
     app.include_router(incidents_router)
@@ -173,6 +177,14 @@ def create_app() -> FastAPI:
             while True:
                 payload = get_live_payload()
                 await websocket.send_text(payload.model_dump_json())
+                try:
+                    import json as _json
+                    from app.routers.flow import get_flow_snapshot
+                    await websocket.send_text(_json.dumps(
+                        {"type": "flow_update", "data": get_flow_snapshot()}
+                    ))
+                except Exception:
+                    pass
                 await asyncio.sleep(5)
         except WebSocketDisconnect:
             pass

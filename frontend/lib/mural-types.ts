@@ -35,3 +35,11 @@ export interface RawCluster {
 export interface TelemetryResponse {
   clusters: RawCluster[];
 }
+
+export interface SectionCopy {
+  pt: string;
+  en: string;
+  tom: string;
+}
+
+export type ScreenCopyMap = Record<string, SectionCopy>;
