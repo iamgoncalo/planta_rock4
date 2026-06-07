@@ -15,6 +15,8 @@ fara a fusao inteligente. Por agora, guarda e expoe o que recebe.
 """
 from __future__ import annotations
 
+import logging
+import os
 import time as _time
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
@@ -24,6 +26,8 @@ from app.config import get_settings
 from app.services import ingest_store
 from app.clusters_capacity import ALL_CLUSTERS, is_unisex, occupancy_pct
 from app.sensors_topology import USAR_IR
+
+_logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["ingest"])
 
@@ -50,13 +54,20 @@ class IngestBody(BaseModel):
     params: IngestParams
 
 
-def _check_auth(secret: Optional[str]) -> None:
-    expected = get_settings().ops_secret
-    if not expected or expected == "change-me":
-        # Em dev sem segredo definido, nao bloqueia (mas avisa nos logs).
-        return
-    if secret != expected:
-        raise HTTPException(status_code=401, detail="invalid ops secret")
+def _check_auth(ops_secret: Optional[str], ingest_token: Optional[str]) -> None:
+    # Camada 1 — X-Ops-Secret (existente, compatibilidade)
+    expected_ops = get_settings().ops_secret
+    if expected_ops and expected_ops != "change-me":
+        if ops_secret != expected_ops:
+            raise HTTPException(status_code=401, detail="invalid ops secret")
+    else:
+        _logger.warning("OPS_SECRET nao configurado — ingest sem autenticacao ops")
+
+    # Camada 2 — X-Ingest-Token (nova camada; so activa se INGEST_TOKEN estiver definido)
+    expected_tok = os.getenv("INGEST_TOKEN", "")
+    if expected_tok:
+        if ingest_token != expected_tok:
+            raise HTTPException(status_code=401, detail="invalid ingest token")
 
 
 def _run_fusion(cid: str, params: dict, ts_ms: int) -> None:
@@ -105,8 +116,12 @@ def _run_fusion(cid: str, params: dict, ts_ms: int) -> None:
 
 
 @router.post("/ingest")
-async def ingest(body: IngestBody, x_ops_secret: Optional[str] = Header(default=None)):
-    _check_auth(x_ops_secret)
+async def ingest(
+    body: IngestBody,
+    x_ops_secret: Optional[str] = Header(default=None),
+    x_ingest_token: Optional[str] = Header(default=None),
+):
+    _check_auth(x_ops_secret, x_ingest_token)
 
     cid = body.cluster_id.lower()
     if cid not in ALL_CLUSTERS:
