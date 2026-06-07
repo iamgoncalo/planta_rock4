@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Request
@@ -22,6 +23,23 @@ from app.services.cluster_telemetry import (
 from app.services.state import get_live_payload
 
 router = APIRouter(prefix="/api/v1/telemetry", tags=["telemetry"])
+
+# ── Cache de 5s para o snapshot ──────────────────────────────────────────────
+# Os dados so mudam ao ritmo das placas (~10s), por isso servir a mesma
+# resposta durante 5s e seguro e transforma 1 calculo pesado em milhares de
+# leituras baratas. Resolve a carga de visitantes (auditoria seccao 3).
+_SNAP_CACHE: dict[str, object] = {"data": None, "ts": 0.0}
+_SNAP_TTL_S = 5.0
+
+
+def _cached_snapshot() -> dict:
+    now = time.monotonic()
+    if _SNAP_CACHE["data"] is not None and (now - _SNAP_CACHE["ts"]) < _SNAP_TTL_S:
+        return _SNAP_CACHE["data"]  # type: ignore[return-value]
+    snap = _build_snapshot()
+    _SNAP_CACHE["data"] = snap
+    _SNAP_CACHE["ts"] = now
+    return snap
 
 
 def _build_snapshot() -> dict[str, Any]:
@@ -39,8 +57,8 @@ def _build_snapshot() -> dict[str, Any]:
 
 @router.get("/clusters/now")
 async def clusters_now() -> dict[str, Any]:
-    """Snapshot único — para clients que não suportam SSE."""
-    return _build_snapshot()
+    """Snapshot único — para clients que não suportam SSE. Cache de 5s."""
+    return _cached_snapshot()
 
 
 @router.get("/clusters/stream")
