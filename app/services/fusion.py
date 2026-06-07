@@ -72,3 +72,52 @@ def fuse(
     confidence = round(max(CONF_FLOOR, min(1.0, confidence)), 3)
 
     return round(max(0.0, delta), 6), confidence, issues
+
+
+def fuse_cluster(
+    cap_inside: int,
+    espera_max: float,
+    sources_present: list[str],
+    camera_people: Optional[float] = None,
+    ir_in: Optional[float] = None,
+    ir_out: Optional[float] = None,
+    wifi_devices: Optional[float] = None,
+    wifi_factor: float = 2.5,
+) -> dict:
+    """
+    Wrapper de cluster para o router /api/v1/fusion/{cluster_id}.
+    Converte os parametros do router para fuse() e devolve o dict completo.
+    """
+    wifi_pessoas = (wifi_devices / wifi_factor) if wifi_devices is not None else None
+    pessoas, confianca, issues = fuse(ir_in, ir_out, wifi_pessoas, camera_people)
+    cap = max(1, cap_inside)
+    ocupacao_pct = round(min(100.0, pessoas / cap * 100.0), 1)
+    over = max(0.0, pessoas - cap * 0.80)
+    fila_atual = int(round(over * 1.5))
+    tempo_espera_min = round(fila_atual * 0.18, 1) if fila_atual > 0 else 0.0
+
+    fontes_usadas = [s for s in ("ir", "wifi", "cam")
+                     if s not in " ".join(issues)]
+    estimativas: dict[str, float] = {}
+    if ir_in is not None and ir_out is not None:
+        estimativas["ir"] = round(max(0.0, ir_in - ir_out), 1)
+    if wifi_pessoas is not None:
+        estimativas["wifi"] = round(wifi_pessoas, 1)
+    if camera_people is not None:
+        estimativas["cam"] = round(camera_people, 1)
+
+    raw_w = {k: BASE_WEIGHTS[k] for k in estimativas} if estimativas else {}
+    total_w = sum(raw_w.values()) or 1.0
+    pesos = {k: round(v / total_w, 3) for k, v in raw_w.items()}
+
+    return {
+        "pessoas": int(round(pessoas)),
+        "ocupacao_pct": ocupacao_pct,
+        "fila_atual": fila_atual,
+        "tempo_espera_min": tempo_espera_min,
+        "confianca": confianca,
+        "fontes_usadas": fontes_usadas,
+        "pesos": pesos,
+        "estimativas_por_fonte": estimativas,
+        "issues": issues,
+    }
