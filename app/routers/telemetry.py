@@ -14,7 +14,7 @@ import json
 import time
 from typing import Any, AsyncIterator
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import StreamingResponse
 
 from app.services.cluster_telemetry import (
