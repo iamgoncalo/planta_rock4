@@ -18,6 +18,7 @@ const NAV: NavItem[] = [
   { href: '/v2/chat2',      label: 'Chat',       hint: 'G ?' },
   { href: '/v2/twin',       label: 'Twin',       hint: 'G T' },
   { href: '/v2/sensors',    label: 'Sensores',   hint: 'G S' },
+  { href: '/v2/screen',     label: 'Screens',    hint: 'G E' },
   { href: '/v2/shows',      label: 'Shows',      hint: 'G W' },
   { href: '/v2/cleaning',   label: 'Limpeza',    hint: 'G L' },
   { href: '/v2/scor',       label: 'SCOR',       hint: 'G C' },
