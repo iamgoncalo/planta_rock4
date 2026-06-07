@@ -56,8 +56,13 @@ def _build_snapshot() -> dict[str, Any]:
 
 
 @router.get("/clusters/now")
-async def clusters_now() -> dict[str, Any]:
-    """Snapshot único — para clients que não suportam SSE. Cache de 5s."""
+async def clusters_now(response: Response) -> dict[str, Any]:
+    """Snapshot único — para clients que não suportam SSE. Cache de 5s.
+
+    Cache-Control permite à CDN (Cloudflare) guardar a resposta na borda
+    durante 5s — os pedidos nem chegam ao servidor. s-maxage = cache CDN.
+    """
+    response.headers["Cache-Control"] = "public, max-age=5, s-maxage=5"
     return _cached_snapshot()
 
 
