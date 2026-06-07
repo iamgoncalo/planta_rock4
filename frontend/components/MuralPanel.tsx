@@ -176,7 +176,7 @@ export default function MuralPanel({
   // ── Typography sizes (mural vs solo) ────────────────────────────────────────
   const sz = isSolo
     ? {
-        padding: 'clamp(3vh, 5vh, 7vh) clamp(4vw, 5vw, 7vw)',
+        padding: 'clamp(4vh, 6vh, 9vh) clamp(5vw, 6vw, 8vw) clamp(10vh, 13vh, 16vh)',
         wcId: 'clamp(2.2rem, 4vw, 5.5rem)',
         gender: 'clamp(1.1rem, 1.9vw, 2.4rem)',
         wait: 'clamp(1.1rem, 1.9vw, 2.4rem)',
@@ -285,7 +285,7 @@ export default function MuralPanel({
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'center',
-          padding: '2vh 0',
+          padding: 'clamp(3vh, 5vh, 7vh) 0',
           minHeight: 0,
           gap: sz.bodyGap,
         }}
