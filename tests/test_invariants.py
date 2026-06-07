@@ -191,3 +191,73 @@ def test_section_state_valid_gendered_sections():
 
     s2 = SectionState(section_id="WC-01_F", gender="F")
     assert s2.gender == "F"
+
+
+# ---------------------------------------------------------------------------
+# NorthStar invariants I-1..I-8
+# ---------------------------------------------------------------------------
+
+def test_startup_assert_passes():
+    """startup_assert() must complete without raising."""
+    from app.fusion import startup_assert
+    startup_assert()
+
+
+def test_i5_fusion_result_has_confianca():
+    """I-5: FusionResult must always carry a 'confianca' field."""
+    import dataclasses
+    from app.fusion import FusionResult
+    field_names = {f.name for f in dataclasses.fields(FusionResult)}
+    assert "confianca" in field_names, "I-5: FusionResult missing 'confianca'"
+
+
+def test_i5_section_state_has_confianca():
+    """I-5: SectionState must also carry 'confianca' after the §3.5 extension."""
+    s = SectionState(section_id="WC-01_M")
+    assert hasattr(s, "confianca"), "I-5: SectionState missing 'confianca'"
+    assert 0.0 <= s.confianca <= 1.0
+
+
+def test_i7_all_cluster_ids_valid():
+    """I-7: every cluster_id in ALL_CLUSTERS must match CLUSTER_ID_RE."""
+    import re
+    from app.sensors_topology import CLUSTER_ID_RE
+    from app.clusters_capacity import ALL_CLUSTERS
+    for cid in ALL_CLUSTERS:
+        assert re.match(CLUSTER_ID_RE, cid), (
+            f"I-7: '{cid}' does not match {CLUSTER_ID_RE!r}"
+        )
+
+
+def test_i8_critical_colour():
+    """I-8: CRITICAL_COLOUR must be #C25A1A — never red."""
+    from app.sensors_topology import CRITICAL_COLOUR
+    assert CRITICAL_COLOUR == "#C25A1A", (
+        f"I-8: CRITICAL_COLOUR={CRITICAL_COLOUR!r}, expected '#C25A1A'"
+    )
+
+
+def test_i3_base_weights_sum_to_one():
+    """I-3/§3.2: BASE_WEIGHTS must sum to exactly 1.0."""
+    from app.sensors_topology import BASE_WEIGHTS
+    total = sum(BASE_WEIGHTS.values())
+    assert abs(total - 1.0) < 1e-9, f"BASE_WEIGHTS sum={total:.10f}, expected 1.0"
+
+
+def test_i1_fusion_input_has_no_env_fields():
+    """I-1: FusionInput must not expose environmental fields (CO₂, temp, humidity)."""
+    import dataclasses
+    from app.fusion import FusionInput
+    field_names = {f.name for f in dataclasses.fields(FusionInput)}
+    forbidden = {"co2_ppm", "temperatura", "humidade", "humidity", "temp_c"}
+    overlap = field_names & forbidden
+    assert not overlap, f"I-1: FusionInput contains env fields: {overlap}"
+
+
+def test_i4_fuse_section_all_sources_dead_no_crash():
+    """I-4: fuse_section with no live sources must not raise and must return confianca."""
+    from app.fusion import FusionInput, fuse_section, CONF_FLOOR
+    inp = FusionInput(section_id="wc-05", ts_ms=0, usar_ir=False)
+    result = fuse_section(inp)
+    assert 0.0 <= result.confianca <= 1.0
+    assert result.stale is True

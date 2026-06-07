@@ -12,8 +12,8 @@ export const CLUSTER_COPY: Record<ClusterId, ClusterCopy> = {
   '01': {
     calmo: [
       [
-        'Bebedouro EPAL aqui. Hidrata, esvazia, repete.',
-        'EPAL fountain here. Drink, drain, repeat.',
+        'Entrada norte. Lugares livres, fila curta.',
+        'North gate. Open stalls, short queue.',
       ],
       [
         'Norte. Sem multidão. Sem mistério.',

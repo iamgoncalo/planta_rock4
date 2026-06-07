@@ -1,86 +1,74 @@
 """
-PlantaOS — Fusao v2 (demo-grade). Pesos adaptativos, wifi_factor adaptativo,
-confianca refinada (qualidade da fonte + concordancia), ocupacao com sigmoide
-suave para a fila. Nunca /0.
+PlantaOS — Shim de fusao sensorial (interface de compatibilidade, tests 8-14).
+Expoe fuse(), _W_IR, _W_WIFI, _W_CAMERA com pesos canonicos NorthStar §3.2.
+A fusao por-seccao completa (§3.1-3.5) vive em app/fusion.py.
 """
 from __future__ import annotations
+
 from statistics import mean, pstdev
 from typing import Optional
 
-BASE_WEIGHTS = {"camera": 0.50, "ir": 0.30, "wifi": 0.20}
-# qualidade intrinseca de cada fonte (para confianca com 1 fonte)
-SOURCE_QUALITY = {"camera": 0.82, "ir": 0.70, "wifi": 0.45}
+from app.sensors_topology import BASE_WEIGHTS, CONF_FLOOR, LIVENESS_TRUST
+
+# Pesos NorthStar §3.2 — IR=0.50, WiFi=0.30, Camera=0.20
+_W_IR     = BASE_WEIGHTS["ir"]    # 0.50
+_W_WIFI   = BASE_WEIGHTS["wifi"]  # 0.30
+_W_CAMERA = BASE_WEIGHTS["cam"]   # 0.20
 
 
-def fuse_cluster(*, cap_inside: int, espera_max: float, sources_present: list,
-                 camera_people=None, ir_in=None, ir_out=None,
-                 wifi_devices=None, wifi_factor=2.5) -> dict:
-    estimates = {}
-    if camera_people is not None:
-        estimates["camera"] = max(0.0, float(camera_people))
-    if ir_in is not None and ir_out is not None:
-        estimates["ir"] = max(0.0, float(ir_in - ir_out))
-    if wifi_devices is not None and wifi_factor > 0:
-        estimates["wifi"] = max(0.0, float(wifi_devices) / wifi_factor)
+def fuse(
+    ir_entry: Optional[float],
+    ir_exit: Optional[float],
+    wifi_devices: Optional[float],
+    camera_count: Optional[float],
+) -> tuple[float, float, list[str]]:
+    """
+    Fusao com redistribuicao de pesos (I-4: nunca divide por zero).
+    Retorna (delta_pessoas: float, confianca: float, problemas: list[str]).
+    delta >= 0 sempre. confianca in [CONF_FLOOR, 1.0] salvo all_sensors_missing.
+    """
+    issues: list[str] = []
+    estimates: dict[str, float] = {}
+
+    if ir_entry is not None and ir_exit is not None:
+        estimates["ir"] = max(0.0, float(ir_entry) - float(ir_exit))
+    else:
+        issues.append("ir_missing")
+
+    if wifi_devices is not None:
+        estimates["wifi"] = max(0.0, float(wifi_devices))
+    else:
+        issues.append("wifi_missing")
+
+    if camera_count is not None:
+        estimates["cam"] = max(0.0, float(camera_count))
+    else:
+        issues.append("camera_missing")
 
     if not estimates:
-        return {"pessoas":0,"ocupacao_pct":0.0,"fila_atual":0,"tempo_espera_min":0.0,
-                "confianca":0.0,"fontes_usadas":[],"pesos":{},"estado":"sem-dados"}
+        return 0.0, 0.0, ["all_sensors_missing"]
 
-    present = list(estimates.keys())
-    raw = {k: BASE_WEIGHTS.get(k,0.0) for k in present}
-    tot = sum(raw.values()) or 1.0
-    weights = {k: v/tot for k,v in raw.items()}
-    pessoas = sum(estimates[k]*weights[k] for k in present)
+    # Pesos efectivos renormalizados (I-4: total_w > 0 garantido)
+    raw_w = {k: BASE_WEIGHTS[k] for k in estimates}
+    total_w = sum(raw_w.values())
+    w = {k: v / total_w for k, v in raw_w.items()}
+    delta = sum(w[k] * estimates[k] for k in w)
 
-    # confianca: combina concordancia entre fontes + qualidade media das fontes
-    qual = mean(SOURCE_QUALITY.get(k,0.5) for k in present)
+    # Confianca §3.4 (sem ancora Prosegur → accord neutro = 0.5)
     vals = list(estimates.values())
-    if len(vals) >= 2 and mean(vals) > 0:
-        cv = pstdev(vals)/mean(vals)
-        concord = max(0.0, 1.0 - cv)
-        confianca = 0.5*concord + 0.5*qual
+    n = len(vals)
+    m = mean(vals)
+    if n > 1:
+        cv = pstdev(vals) / m if m > 0 else 0.0
+        agree = 1.0 - min(cv, 1.0)
+        if cv > 0.3:
+            issues.append("sensors_disagree")
     else:
-        confianca = qual  # 1 fonte: confianca = qualidade da fonte
-    confianca = max(0.0, min(1.0, confianca))
+        agree = 0.45  # fonte solo: concordancia moderada
 
-    ocup = min(150.0, pessoas/cap_inside*100.0) if cap_inside else 0.0
-    # fila: sigmoide suave a partir de ~80% (em vez de corte abrupto)
-    import math
-    over = pessoas - cap_inside*0.8
-    fila = max(0, int(round(over))) if over > 0 else 0
-    espera = min(espera_max, fila*0.18) if fila > 0 else 0.0
+    liveness = LIVENESS_TRUST.get(n, 0.5)
+    accord = 0.5
+    confidence = 0.45 * agree + 0.30 * liveness + 0.25 * accord
+    confidence = round(max(CONF_FLOOR, min(1.0, confidence)), 3)
 
-    return {
-        "pessoas": int(round(pessoas)),
-        "ocupacao_pct": round(ocup,1),
-        "fila_atual": fila,
-        "tempo_espera_min": round(espera,1),
-        "confianca": round(confianca,2),
-        "fontes_usadas": present,
-        "pesos": {k:round(v,2) for k,v in weights.items()},
-        "estimativas_por_fonte": {k:round(v,1) for k,v in estimates.items()},
-        "wifi_factor": round(wifi_factor,2),
-        "estado": "ok",
-    }
-
-
-def calibrate_wifi_factor(ground_truth_people: float, wifi_devices: int) -> float:
-    if ground_truth_people <= 0:
-        return 2.5
-    return max(1.2, min(4.0, wifi_devices/ground_truth_people))
-
-
-if __name__ == "__main__":
-    print("=== 3 fontes concordam (alta confianca) ===")
-    r = fuse_cluster(cap_inside=135,espera_max=81,sources_present=["camera","ir","wifi"],
-                     camera_people=100,ir_in=160,ir_out=62,wifi_devices=250,wifi_factor=2.5)
-    print(f"  pessoas={r['pessoas']} ocup={r['ocupacao_pct']}% conf={r['confianca']} pesos={r['pesos']}")
-    print("=== 1 fonte camera (conf=qualidade camera 0.82) ===")
-    r = fuse_cluster(cap_inside=208,espera_max=166,sources_present=["camera","wifi"],
-                     camera_people=180,wifi_devices=400,wifi_factor=2.2)
-    print(f"  pessoas={r['pessoas']} conf={r['confianca']} pesos={r['pesos']}")
-    print("=== so wifi (conf baixa 0.45) ===")
-    r = fuse_cluster(cap_inside=135,espera_max=81,sources_present=["wifi"],
-                     wifi_devices=200,wifi_factor=2.8)
-    print(f"  pessoas={r['pessoas']} conf={r['confianca']}")
+    return round(max(0.0, delta), 6), confidence, issues

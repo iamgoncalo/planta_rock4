@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import MuralPanel from '@/components/MuralPanel';
 import type { ClusterId, PanelData } from '@/lib/mural-types';
 import { fetchMuralData } from '@/lib/mural-data';
@@ -50,13 +51,27 @@ export default function ScreenPage() {
         aria-label="Mural de casas de banho · Rock in Rio Lisboa"
       >
         {CLUSTER_ORDER.map((id, idx) => (
-          <MuralPanel
+          <Link
             key={id}
-            id={id}
-            data={panels.get(id) ?? null}
-            mode="mural"
-            staggerDelayMs={idx * 1300}
-          />
+            href={`/wc${id}`}
+            aria-label={`Abrir WC-${id} em ecra inteiro`}
+            style={{
+              display: 'block',
+              position: 'relative',
+              textDecoration: 'none',
+              color: 'inherit',
+              cursor: 'pointer',
+              minHeight: 0,
+              overflow: 'hidden',
+            }}
+          >
+            <MuralPanel
+              id={id}
+              data={panels.get(id) ?? null}
+              mode="mural"
+              staggerDelayMs={idx * 1300}
+            />
+          </Link>
         ))}
       </div>
     </>

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import MuralPanel from '@/components/MuralPanel';
+import WcNav from '@/components/WcNav';
 import type { ClusterId, PanelData } from '@/lib/mural-types';
 import { fetchMuralData } from '@/lib/mural-data';
 
@@ -27,6 +28,7 @@ export default function Wc01Page() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, overflow: 'hidden' }}>
+      <WcNav id={ID} />
       <MuralPanel id={ID} data={panelData} mode="solo" staggerDelayMs={0} />
     </div>
   );

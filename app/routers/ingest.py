@@ -15,6 +15,7 @@ fara a fusao inteligente. Por agora, guarda e expoe o que recebe.
 """
 from __future__ import annotations
 
+import time as _time
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -22,6 +23,7 @@ from typing import Optional, Any
 from app.config import get_settings
 from app.services import ingest_store
 from app.clusters_capacity import ALL_CLUSTERS, is_unisex, occupancy_pct
+from app.sensors_topology import USAR_IR
 
 router = APIRouter(prefix="/api/v1", tags=["ingest"])
 
@@ -57,6 +59,51 @@ def _check_auth(secret: Optional[str]) -> None:
         raise HTTPException(status_code=401, detail="invalid ops secret")
 
 
+def _run_fusion(cid: str, params: dict, ts_ms: int) -> None:
+    """Constroi FusionInput por seccao e chama fuse_section (§3.1-3.2)."""
+    try:
+        from app.fusion import FusionInput, fuse_section
+
+        usar_ir = USAR_IR.get(cid, True)
+        estado = params.get("estado_sensor", "ok")
+        prosegur = params.get("contagem_prosegur")
+        entradas = params.get("entradas_ir")
+        saidas = params.get("saidas_ir")
+
+        if is_unisex(cid):
+            fuse_section(FusionInput(
+                section_id=cid,
+                ts_ms=ts_ms,
+                entradas_ir=entradas,
+                saidas_ir=saidas,
+                pessoas_estimadas=params.get("pessoas_estimadas"),
+                contagem_prosegur=prosegur,
+                estado_sensor=estado,
+                usar_ir=usar_ir,
+            ))
+        else:
+            homens = params.get("homens")
+            mulheres = params.get("mulheres")
+            pessoas = params.get("pessoas_estimadas")
+            for gender, pessoas_g in (("m", homens), ("f", mulheres)):
+                wifi_est = (
+                    float(pessoas_g) if pessoas_g is not None
+                    else (float(pessoas) / 2.0 if pessoas is not None else None)
+                )
+                fuse_section(FusionInput(
+                    section_id=f"{cid}_{gender}",
+                    ts_ms=ts_ms,
+                    entradas_ir=None,   # IR cluster-level; sem split por genero
+                    saidas_ir=None,
+                    pessoas_estimadas=wifi_est,
+                    contagem_prosegur=prosegur,
+                    estado_sensor=estado,
+                    usar_ir=False,      # sem IR seccional disponivel
+                ))
+    except Exception:
+        pass   # fusao nao pode parar a ingestao
+
+
 @router.post("/ingest")
 async def ingest(body: IngestBody, x_ops_secret: Optional[str] = Header(default=None)):
     _check_auth(x_ops_secret)
@@ -67,6 +114,13 @@ async def ingest(body: IngestBody, x_ops_secret: Optional[str] = Header(default=
 
     p = body.params.model_dump()
 
+    # I-3: fusao vive no backend — strip confianca_cruzada do node
+    p.pop("confianca_cruzada", None)
+
+    # I-1: so contagens de pessoas — strip campos ambientais se vieram
+    for _f in ("co2_ppm", "temperatura", "humidade", "humidity", "temp_c"):
+        p.pop(_f, None)
+
     # Regra unissex: wc-05/wc-06 nao tem split por genero.
     if is_unisex(cid):
         p["homens"] = None
@@ -76,8 +130,10 @@ async def ingest(body: IngestBody, x_ops_secret: Optional[str] = Header(default=
     if p.get("ocupacao_instantanea") is None and p.get("pessoas_estimadas") is not None:
         p["ocupacao_instantanea"] = occupancy_pct(cid, float(p["pessoas_estimadas"]))
 
-    ingest_store.put(cid, p, body.ts)
-    return {"ok": True, "cluster_id": cid, "stored_ts": body.ts, "unisex": is_unisex(cid)}
+    ts_ms = body.ts or int(_time.time() * 1000)
+    ingest_store.put(cid, p, ts_ms)
+    _run_fusion(cid, p, ts_ms)
+    return {"ok": True, "cluster_id": cid, "stored_ts": ts_ms, "unisex": is_unisex(cid)}
 
 
 @router.get("/ingest/status")

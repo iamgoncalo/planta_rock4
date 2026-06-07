@@ -45,6 +45,9 @@ class SectionState(BaseModel):
     status: SectionStatus = "normal"
     simulated: bool = True
     gender: Optional[Literal["M", "F"]] = None
+    confianca: float = 0.5            # I-5: sempre presente ∈ [0,1]
+    fontes_activas: list[str] = []
+    stale: bool = False
 
     @field_validator("section_id")
     @classmethod

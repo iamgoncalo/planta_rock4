@@ -130,6 +130,26 @@ def get_live_payload() -> LivePayload:
     """Return the current live (or simulated) state."""
     sections = simulate_tick(CURRENT_SCENARIO, TICK)
 
+    # Enriquecer com resultados de fusao canonicos (§3.5) quando disponiveis
+    from app.fusion import get_fused
+    enriched: list[SectionState] = []
+    for s in sections:
+        fr = get_fused(s.section_id.lower())
+        if fr is not None and not fr.stale:
+            enriched.append(s.model_copy(update={
+                "ocupacao_pct": fr.ocupacao_pct,
+                "fila_atual": fr.fila_actual,
+                "tempo_espera_min": fr.tempo_espera_min,
+                "fluxo_entrada_pmin": fr.fluxo_entrada_pmin,
+                "confianca": fr.confianca,
+                "fontes_activas": fr.fontes_activas,
+                "stale": fr.stale,
+                "simulated": False,
+            }))
+        else:
+            enriched.append(s)
+    sections = enriched
+
     # Compute KPIs
     total = len(sections)
     avg_occ = sum(s.ocupacao_pct for s in sections) / total if total else 0.0
