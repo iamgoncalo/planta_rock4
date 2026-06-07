@@ -22,6 +22,7 @@ export interface RawClusterParams {
   capacidade_total: number;
   tempo_espera_min: number;
   confianca_cruzada: number;
+  estado_sensor?: string;
   is_unissex: boolean;
 }
 
