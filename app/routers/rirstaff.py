@@ -215,7 +215,7 @@ import os as _os, json as _json, time as _time
 from pydantic import BaseModel as _BaseModel
 from fastapi import HTTPException as _HTTPException
 
-_ADMIN_PASS = _os.getenv("RIRSTAFF_ADMIN_PASS", "planta2026")
+_ADMIN_PASS = _os.getenv("RIRSTAFF_ADMIN_PASS", "")
 _CFG_FILE = _os.getenv("RIRSTAFF_CONFIG_FILE", "/tmp/rirstaff_config.json")
 _CFG_DEFAULT = {
     "rirstaff-f": {"raio_m": 5, "divisor": 3, "baseline": 0, "capacidade": 8, "contexto": "staff"},
@@ -248,7 +248,7 @@ class _CfgUpd(_BaseModel):
 def rirstaff_set_config(cluster: str, upd: _CfgUpd):
     if cluster not in _CLUSTERS_VALIDOS:
         raise _HTTPException(status_code=404, detail="cluster desconhecido")
-    if upd.password != _ADMIN_PASS:
+    if not _ADMIN_PASS or upd.password != _ADMIN_PASS:
         raise _HTTPException(status_code=401, detail="Password errada")
     c = _cfg_load()
     a = c.get(cluster, dict(_CFG_DEFAULT.get(cluster, _CFG_DEFAULT["rirstaff-f"])))

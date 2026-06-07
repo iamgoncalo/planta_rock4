@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     mqtt_host:     str = "localhost"
     mqtt_port:     int = 1883
     mqtt_user:     str = "plantaos"
-    mqtt_password: str = "planta2026mqtt"
+    mqtt_password: str = ""
 
     # Public URL (OTA firmware serving)
     public_url: str = "http://localhost:8000"
