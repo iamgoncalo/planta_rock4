@@ -115,7 +115,7 @@ export default function BottomNav() {
   const pathname = usePathname();
 
   // Don't show on TV or app pages (full-screen views)
-  if (pathname.startsWith('/tv/') || pathname === '/app') {
+  if (!pathname || pathname.startsWith('/tv/') || pathname === '/app') {
     return null;
   }
 
