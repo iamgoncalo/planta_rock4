@@ -1,87 +1,86 @@
 'use client';
 
-import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import type { ClusterId } from '@/lib/mural-types';
 
 const ORDER: ClusterId[] = ['01','02','03','04','05','06','07','08'];
 
-function neighbour(id: ClusterId, dir: -1 | 1): ClusterId {
-  const i = ORDER.indexOf(id);
-  const n = (i + dir + ORDER.length) % ORDER.length;
-  return ORDER[n];
-}
+const arrow: React.CSSProperties = {
+  width: 'clamp(34px,3vw,46px)', height: 'clamp(34px,3vw,46px)',
+  display: 'grid', placeItems: 'center', borderRadius: '50%', cursor: 'pointer',
+  fontSize: 'clamp(1.1rem,1.6vw,1.6rem)', color: '#28351C',
+  background: 'rgba(0,0,0,0.05)', border: '1px solid rgba(0,0,0,0.10)',
+};
 
 export default function WcNav({ id }: { id: ClusterId }) {
-  const prev = neighbour(id, -1);
-  const next = neighbour(id, 1);
+  const router = useRouter();
+  const i = ORDER.indexOf(id);
+  const prev = ORDER[(i - 1 + ORDER.length) % ORDER.length];
+  const next = ORDER[(i + 1) % ORDER.length];
 
-  const btn: React.CSSProperties = {
-    position: 'fixed',
-    top: '50%',
-    transform: 'translateY(-50%)',
-    width: 'clamp(40px, 6vh, 64px)',
-    height: 'clamp(40px, 6vh, 64px)',
-    display: 'grid',
-    placeItems: 'center',
-    borderRadius: '50%',
-    textDecoration: 'none',
-    color: 'currentColor',
-    background: 'rgba(0,0,0,0.04)',
-    border: '1px solid rgba(0,0,0,0.06)',
-    fontSize: 'clamp(20px, 3vh, 30px)',
-    opacity: 0.28,
-    transition: 'opacity 0.2s ease, background 0.2s ease',
-    zIndex: 50,
-    userSelect: 'none',
-  };
-
-  const hover = (e: React.MouseEvent<HTMLAnchorElement>, on: boolean) => {
-    e.currentTarget.style.opacity = on ? '0.95' : '0.28';
-    e.currentTarget.style.background = on ? 'rgba(0,0,0,0.10)' : 'rgba(0,0,0,0.04)';
-  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft')  router.push(`/wc${prev}`);
+      if (e.key === 'ArrowRight') router.push(`/wc${next}`);
+      if (e.key === 'Escape' || e.key === 'ArrowUp') router.push('/v2/screen');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [router, prev, next]);
 
   return (
-    <>
-      {/* WC anterior */}
-      <Link href={`/wc${prev}`} aria-label={`WC ${prev}`}
-        style={{ ...btn, left: 'clamp(12px, 2vw, 28px)' }}
-        onMouseEnter={(e) => hover(e, true)} onMouseLeave={(e) => hover(e, false)}>
-        ‹
-      </Link>
-
-      {/* WC seguinte */}
-      <Link href={`/wc${next}`} aria-label={`WC ${next}`}
-        style={{ ...btn, right: 'clamp(12px, 2vw, 28px)' }}
-        onMouseEnter={(e) => hover(e, true)} onMouseLeave={(e) => hover(e, false)}>
-        ›
-      </Link>
-
-      {/* Mural completo (canto superior direito) */}
-      <Link href="/v2/screen" aria-label="Ver mural completo"
+    <nav
+      aria-label="Navegacao entre casas de banho"
+      style={{
+        position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 100,
+        display: 'flex', alignItems: 'center', gap: 'clamp(6px, 0.8vw, 14px)',
+        padding: 'clamp(10px, 1.4vh, 20px) clamp(12px, 2vw, 32px)',
+        background: 'rgba(255,255,255,0.55)',
+        backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)',
+        borderTop: '1px solid rgba(0,0,0,0.06)',
+      }}
+    >
+      <button onClick={() => router.push('/v2/screen')} aria-label="Ver mural completo"
         style={{
-          position: 'fixed',
-          top: 'clamp(12px, 2vh, 24px)',
-          right: 'clamp(12px, 2vw, 28px)',
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          gridTemplateRows: 'repeat(2, 1fr)',
-          gap: '2px',
-          width: 'clamp(30px, 4vh, 44px)',
-          height: 'clamp(16px, 2.2vh, 24px)',
-          padding: '4px',
-          borderRadius: 6,
-          background: 'rgba(0,0,0,0.04)',
-          border: '1px solid rgba(0,0,0,0.06)',
-          opacity: 0.3,
-          transition: 'opacity 0.2s ease',
-          zIndex: 50,
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.95'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.3'; }}>
-        {Array.from({ length: 8 }).map((_, i) => (
-          <span key={i} style={{ background: 'currentColor', borderRadius: 1 }} />
+          display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gridTemplateRows: 'repeat(2,1fr)',
+          gap: 2, width: 'clamp(34px,3vw,46px)', height: 'clamp(20px,1.8vh,28px)',
+          padding: 4, borderRadius: 8, cursor: 'pointer',
+          background: 'rgba(0,0,0,0.05)', border: '1px solid rgba(0,0,0,0.10)', flexShrink: 0,
+        }}>
+        {Array.from({ length: 8 }).map((_, k) => (
+          <span key={k} style={{ background: '#28351C', borderRadius: 1, opacity: 0.7 }} />
         ))}
-      </Link>
-    </>
+      </button>
+
+      <div style={{ width: 1, height: 'clamp(20px,3vh,32px)', background: 'rgba(0,0,0,0.12)', flexShrink: 0 }} />
+
+      <div style={{ display: 'flex', gap: 'clamp(4px,0.6vw,10px)', flex: 1, justifyContent: 'center' }}>
+        {ORDER.map((c) => {
+          const active = c === id;
+          return (
+            <button key={c} onClick={() => router.push(`/wc${c}`)}
+              aria-label={`WC-${c}`} aria-current={active ? 'page' : undefined}
+              style={{
+                fontFamily: "'Inter', system-ui, sans-serif",
+                fontSize: 'clamp(0.7rem, 1vw, 1rem)', fontWeight: active ? 700 : 500,
+                fontVariantNumeric: 'tabular-nums', letterSpacing: '0.04em',
+                padding: 'clamp(6px,0.8vh,10px) clamp(8px,1vw,16px)', borderRadius: 999, cursor: 'pointer',
+                color: active ? '#fff' : '#28351C',
+                background: active ? '#28351C' : 'rgba(0,0,0,0.05)',
+                border: '1px solid ' + (active ? '#28351C' : 'rgba(0,0,0,0.10)'),
+                transition: 'all 0.16s ease',
+              }}>
+              {c}
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ display: 'flex', gap: 'clamp(4px,0.6vw,10px)', flexShrink: 0 }}>
+        <button onClick={() => router.push(`/wc${prev}`)} aria-label={`WC ${prev}`} style={arrow}>{'\u2039'}</button>
+        <button onClick={() => router.push(`/wc${next}`)} aria-label={`WC ${next}`} style={arrow}>{'\u203A'}</button>
+      </div>
+    </nav>
   );
 }
