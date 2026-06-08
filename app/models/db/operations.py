@@ -1,15 +1,15 @@
 """
 PlantaOS · DB models para operações
 ====================================
-3 tabelas novas: cleaning_log, staff_roster, incident_log
+Tabelas: cleaning_log, staff_roster, incident_log, ingest_snapshots
 Segue o padrão de app/models/db/sensors.py — SQLAlchemy clássico.
 """
 from __future__ import annotations
 
 from sqlalchemy import (
-    Column, String, Integer, Boolean, Text, ForeignKey, func, text
+    Column, String, Integer, Boolean, Text, ForeignKey, BigInteger, func, text
 )
-from sqlalchemy.dialects.postgresql import TIMESTAMP
+from sqlalchemy.dialects.postgresql import TIMESTAMP, JSONB
 
 from app.db import Base
 
@@ -74,3 +74,18 @@ class IncidentLog(Base):
     resolution_note = Column(Text, nullable=True)
     occurred_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
+# ============================================================================
+# INGEST SNAPSHOT — snapshot do ingest_store para sobreviver restarts (U5)
+# ============================================================================
+class IngestSnapshot(Base):
+    """Última leitura conhecida por cluster — persistida a cada 60s."""
+    __tablename__ = "ingest_snapshots"
+
+    cluster_id = Column(String, primary_key=True)
+    params_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    ts_server   = Column(BigInteger, nullable=False)   # unix ms
+    ts_device   = Column(BigInteger, nullable=True)    # unix ms
+    updated_at  = Column(TIMESTAMP(timezone=True), server_default=func.now(),
+                         onupdate=func.now())

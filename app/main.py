@@ -64,7 +64,7 @@ def create_app() -> FastAPI:
             from app.db import engine, Base
             # Import models so they register with Base.metadata
             from app.models.db.sensors import ClusterRef, Sensor, SensorHealth, MaintenanceLog, TerminalLog  # noqa
-            from app.models.db.operations import CleaningLog, StaffRoster, IncidentLog  # noqa
+            from app.models.db.operations import CleaningLog, StaffRoster, IncidentLog, IngestSnapshot  # noqa
             from app.models.db.flow_history import FlowSnapshot, CrowdProfile  # noqa
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
@@ -122,6 +122,16 @@ def create_app() -> FastAPI:
             logger.info("Flow history: crowd profiles seeded + snapshot loop started")
         except Exception as e:
             logger.warning(f"Flow history startup warning: {e}")
+
+        # U5: recarregar ingest_store do snapshot + iniciar loop de persistência
+        try:
+            from app.services.ingest_store import _load_snapshot, snapshot_loop
+            from app.db import AsyncSessionLocal
+            await _load_snapshot(AsyncSessionLocal)
+            asyncio.create_task(snapshot_loop(AsyncSessionLocal))
+            logger.info("ingest_store: snapshot recarregado + loop persistência iniciado")
+        except Exception as e:
+            logger.warning(f"ingest_store snapshot startup warning: {e}")
 
     # CORS — allow frontend dev servers and the API itself
     app.add_middleware(

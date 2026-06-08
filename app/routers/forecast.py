@@ -52,7 +52,9 @@ def cluster_forecast(
     try:
         payload = get_live_payload()
     except Exception as e:
-        raise HTTPException(500, detail=f"Não consegui ler estado: {e}")
+        return {"cluster_id": cluster_id, "horizon_min": horizon_min,
+                "ok": False, "reason": f"estado indisponível: {e}",
+                "forecast": [], "current_pct": None}
 
     sections = getattr(payload, "sections", None) or []
     cluster_pcts: list[float] = []

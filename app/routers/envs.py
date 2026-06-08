@@ -95,7 +95,8 @@ async def env_fleet(env_id: str):
             data["refresh_ms"] = e["refresh_ms"]
             return data
         except Exception as ex:
-            raise HTTPException(500, f"erro a obter frota do festival: {ex}")
+            return {"env": env_id, "sensors": [], "ok": False,
+                    "reason": f"frota indisponível: {ex}", "age_s": None}
 
     # ambiente custom: so os sensores adicionados — distincao HONESTA real/simulado
     sensors = es.env_sensors(env_id)

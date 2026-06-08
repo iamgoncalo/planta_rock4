@@ -1,16 +1,21 @@
 """
 PlantaOS — Store em memoria do ultimo payload REAL por cluster.
 Thread-safe (lock). TTL: se nao chega dado ha > ttl_s, fica STALE.
-Nao persiste (reinicia a vazio). Para historico, ver flow_history.
+U5: snapshot persistido a Postgres cada 60s; recarrega ao iniciar.
 
 v2: acumulacao por porta para clusters M/F (LLH/LRH/LLW/LRW).
 Dois LilyGo do mesmo cluster sao SOMADOS, nao sobrescritos.
 """
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
 import threading
 import time
 from typing import Optional
+
+_logger = logging.getLogger(__name__)
 
 _LOCK = threading.Lock()
 
@@ -163,3 +168,64 @@ def snapshot(ttl_s: float) -> dict:
                 "portas_ativas": portas,
             }
         return out
+
+
+# ── Snapshot Postgres (U5) ─────────────────────────────────────────────────
+
+async def _persist_snapshot(session_factory) -> None:
+    """Persiste _STORE em ingest_snapshots (upsert). Silencia erros."""
+    try:
+        from app.models.db.operations import IngestSnapshot
+        from sqlalchemy import select as _select
+
+        with _LOCK:
+            snap = {cid: dict(rec) for cid, rec in _STORE.items()}
+
+        async with session_factory() as session:
+            for cid, rec in snap.items():
+                existing = await session.get(IngestSnapshot, cid)
+                ts_s = int(rec["ts_server"] * 1000)
+                ts_d = int(rec.get("ts_device") or ts_s)
+                if existing:
+                    existing.params_json = rec["params"]
+                    existing.ts_server   = ts_s
+                    existing.ts_device   = ts_d
+                else:
+                    session.add(IngestSnapshot(
+                        cluster_id=cid,
+                        params_json=rec["params"],
+                        ts_server=ts_s,
+                        ts_device=ts_d,
+                    ))
+            await session.commit()
+    except Exception as exc:
+        _logger.debug("ingest_store snapshot erro (ignorado): %s", exc)
+
+
+async def _load_snapshot(session_factory) -> None:
+    """Ao iniciar, recarrega _STORE a partir de ingest_snapshots (se existir)."""
+    try:
+        from app.models.db.operations import IngestSnapshot
+        async with session_factory() as session:
+            from sqlalchemy import select as _select
+            result = await session.execute(_select(IngestSnapshot))
+            rows = result.scalars().all()
+            if not rows:
+                return
+            with _LOCK:
+                for row in rows:
+                    _STORE[row.cluster_id] = {
+                        "params":    dict(row.params_json or {}),
+                        "ts_server": (row.ts_server or 0) / 1000.0,
+                        "ts_device": row.ts_device or 0,
+                    }
+            _logger.info("ingest_store: %d clusters recarregados do snapshot", len(rows))
+    except Exception as exc:
+        _logger.debug("ingest_store load snapshot erro (ignorado): %s", exc)
+
+
+async def snapshot_loop(session_factory, interval_s: float = 60.0) -> None:
+    """Loop assíncrono: persiste snapshot a cada interval_s segundos."""
+    while True:
+        await asyncio.sleep(interval_s)
+        await _persist_snapshot(session_factory)
