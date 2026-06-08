@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from sqlalchemy import select, func
 
-from app.clusters_geo import CLUSTER_GPS, CLUSTERS_GEO as _CLUSTERS_GEO
+from app.clusters_geo import CLUSTER_GPS, CLUSTERS_GEO as _CLUSTERS_GEO, GATEWAY_NORTH_GPS, GATEWAY_SOUTH_GPS
 
 logger = logging.getLogger(__name__)
 
@@ -146,8 +146,8 @@ def _sensor_seed_rows() -> list[dict]:
         "model": "Dragino DLOS8",
         "protocol": "lorawan",
         "location_desc": "Gateway LoRa Norte — cobre WC-01, WC-02, WC-03, WC-04",
-        "gps_lat": 38.7875,
-        "gps_lon": -9.0940,
+        "gps_lat": GATEWAY_NORTH_GPS[0],
+        "gps_lon": GATEWAY_NORTH_GPS[1],
         "has_battery": False,
         "powered_by": "PoE",
         "ip_rating": "IP67",
@@ -162,8 +162,8 @@ def _sensor_seed_rows() -> list[dict]:
         "model": "Dragino DLOS8",
         "protocol": "lorawan",
         "location_desc": "Gateway LoRa Sul — cobre WC-05, WC-06, WC-07, WC-08",
-        "gps_lat": 38.7775,
-        "gps_lon": -9.0930,
+        "gps_lat": GATEWAY_SOUTH_GPS[0],
+        "gps_lon": GATEWAY_SOUTH_GPS[1],
         "has_battery": False,
         "powered_by": "PoE",
         "ip_rating": "IP67",

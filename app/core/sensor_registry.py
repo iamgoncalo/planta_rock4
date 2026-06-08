@@ -26,7 +26,7 @@ ONLINE_THRESHOLD_S = 70
 DEGRADED_THRESHOLD_S = 300
 
 # Cluster GPS centroids (importado de clusters_geo — única fonte de verdade)
-from app.clusters_geo import CLUSTER_GPS as _CLUSTER_GPS
+from app.clusters_geo import CLUSTER_GPS as _CLUSTER_GPS, GATEWAY_NORTH_GPS, GATEWAY_SOUTH_GPS, VENUE_MIDLAT
 
 # Coverage radius per sensor type (metres, for GeoJSON circles)
 COVERAGE_RADIUS_M = {
@@ -55,7 +55,7 @@ def _ir_nodes(cluster: str, lat: float, lon: float) -> list[dict]:
                 "lat": lat + (0.00003 if direction == "entry" else -0.00003),
                 "lon": lon + (0.00002 if gender == "M" else -0.00002),
                 "hub_id": f"lilygo_{cluster.lower().replace('-', '')}",
-                "gateway_id": "gw_north" if lat > 38.782 else "gw_south",
+                "gateway_id": "gw_north" if lat > VENUE_MIDLAT else "gw_south",
             })
     return nodes
 
@@ -76,7 +76,7 @@ def _ir_nodes_unisex(cluster: str, lat: float, lon: float) -> list[dict]:
                 "lat": lat + (0.00003 if direction == "entry" else -0.00003),
                 "lon": lon + (0.00002 if lane == "A" else -0.00002),
                 "hub_id": f"lilygo_{cluster.lower().replace('-', '')}",
-                "gateway_id": "gw_north" if lat > 38.782 else "gw_south",
+                "gateway_id": "gw_north" if lat > VENUE_MIDLAT else "gw_south",
             })
     return nodes
 
@@ -93,7 +93,7 @@ def _wifi_nodes(cluster: str, lat: float, lon: float) -> list[dict]:
             "lat": lat + (0.00010 * (1 if i == 1 else -1)),
             "lon": lon + (0.00010 * (1 if i == 1 else -1)),
             "hub_id": None,
-            "gateway_id": "gw_north" if lat > 38.782 else "gw_south",
+            "gateway_id": "gw_north" if lat > VENUE_MIDLAT else "gw_south",
         }
         for i in range(1, 3)
     ]
@@ -125,7 +125,7 @@ def _lilygo_node(cluster: str, lat: float, lon: float) -> dict:
         "lat": lat,
         "lon": lon,
         "hub_id": None,
-        "gateway_id": "gw_north" if lat > 38.782 else "gw_south",
+        "gateway_id": "gw_north" if lat > VENUE_MIDLAT else "gw_south",
         "battery_mah": LILYGO_BATTERY_MAH,
         "draw_ma": LILYGO_DRAW_MA,
         "estimated_days": LILYGO_REAL_DAYS,
@@ -145,15 +145,15 @@ for _cluster, (_lat, _lon) in _CLUSTER_GPS.items():
     _REGISTRY.extend(_wifi_nodes(_cluster, _lat, _lon))
     _REGISTRY.append(_camera_node(_cluster, _lat, _lon))
 
-# LoRa gateways (2)
+# LoRa gateways (2) — posições de clusters_geo
 _REGISTRY.append({
     "id": "gw_north",
     "type": "lorawan",
     "model": "Dragino DLOS8",
     "cluster_id": None,
     "section_id": None,
-    "lat": 38.7875,
-    "lon": -9.0940,
+    "lat": GATEWAY_NORTH_GPS[0],
+    "lon": GATEWAY_NORTH_GPS[1],
     "hub_id": None,
     "gateway_id": None,
 })
@@ -163,8 +163,8 @@ _REGISTRY.append({
     "model": "Dragino DLOS8",
     "cluster_id": None,
     "section_id": None,
-    "lat": 38.7775,
-    "lon": -9.0930,
+    "lat": GATEWAY_SOUTH_GPS[0],
+    "lon": GATEWAY_SOUTH_GPS[1],
     "hub_id": None,
     "gateway_id": None,
 })

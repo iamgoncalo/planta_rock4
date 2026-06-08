@@ -12,8 +12,8 @@ Seed script for sensor nodes — Rock in Rio Lisboa 2026.
 """
 from __future__ import annotations
 
-# Cluster GPS centroids (clusters_geo — única fonte de verdade)
-from app.clusters_geo import CLUSTER_GPS as _CLUSTER_GPS
+# Cluster GPS centroids + gateways (clusters_geo — única fonte de verdade)
+from app.clusters_geo import CLUSTER_GPS as _CLUSTER_GPS, GATEWAY_NORTH_GPS, GATEWAY_SOUTH_GPS, VENUE_MIDLAT
 
 _UNISEX = {"WC-05", "WC-06"}
 
@@ -46,7 +46,7 @@ def _hub(cluster: str, lat: float, lon: float) -> dict:
         "fusion_weight": FUSION_WEIGHTS["lilygo"],
         "firmware": "plantaos-hub-v2.1.0",
         "cost_eur": 45.0,
-        "notes": f"Hub LilyGo para cluster {cluster}. Gateway: {'gw_north' if lat > 38.782 else 'gw_south'}.",
+        "notes": f"Hub LilyGo para cluster {cluster}. Gateway: {'gw_north' if lat > VENUE_MIDLAT else 'gw_south'}.",
         "critical_note": None,
         "installed_by": None,
     }
@@ -216,8 +216,8 @@ for _cluster, (_lat, _lon) in _CLUSTER_GPS.items():
     SENSOR_SEED.extend(_wifi_nodes(_cluster, _lat, _lon))
     SENSOR_SEED.append(_camera_node(_cluster, _lat, _lon))
 
-SENSOR_SEED.append(_gateway_node("gw_north", 38.7875, -9.0940, "Norte"))
-SENSOR_SEED.append(_gateway_node("gw_south", 38.7775, -9.0930, "Sul"))
+SENSOR_SEED.append(_gateway_node("gw_north", GATEWAY_NORTH_GPS[0], GATEWAY_NORTH_GPS[1], "Norte"))
+SENSOR_SEED.append(_gateway_node("gw_south", GATEWAY_SOUTH_GPS[0], GATEWAY_SOUTH_GPS[1], "Sul"))
 
 assert len(SENSOR_SEED) == 66, f"Expected 66 sensors, got {len(SENSOR_SEED)}"
 

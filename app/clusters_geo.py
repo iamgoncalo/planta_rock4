@@ -109,3 +109,10 @@ CLUSTER_GPS: dict[str, tuple[float, float]] = {
     )
     for c in CLUSTERS_GEO
 }
+
+# Gateways LoRa Dragino DLOS8 (infra independente dos clusters WC)
+GATEWAY_NORTH_GPS = (38.7875, -9.0940)  # Norte — cobre WC-01..04
+GATEWAY_SOUTH_GPS = (38.7775, -9.0930)  # Sul   — cobre WC-05..08
+
+# Limiar de latitude para atribuição Norte/Sul (ponto médio do recinto)
+VENUE_MIDLAT = (GATEWAY_NORTH_GPS[0] + GATEWAY_SOUTH_GPS[0]) / 2
