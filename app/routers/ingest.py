@@ -43,6 +43,10 @@ class IngestParams(BaseModel):
     contagem_prosegur: Optional[int] = None
     confianca_cruzada: Optional[float] = None
     estado_sensor: Optional[str] = "okay"
+    # Campos Opcao A — firmware envia cluster_id="wc-01" + porta + secao
+    fonte: Optional[str] = "lilygo"   # "lilygo" | "luxonis" | "prosegur"
+    porta: Optional[str] = None        # "LL" | "LR" | "C"  (clusters M/F)
+    secao: Optional[str] = None        # "m"  | "f"  | "u"  (clusters M/F)
 
     class Config:
         extra = "allow"  # permite fontes cruas extra (ml, etc.) sem rejeitar
@@ -71,45 +75,86 @@ def _check_auth(ops_secret: Optional[str], ingest_token: Optional[str]) -> None:
 
 
 def _run_fusion(cid: str, params: dict, ts_ms: int) -> None:
-    """Constroi FusionInput por seccao e chama fuse_section (§3.1-3.2)."""
+    """Constroi FusionInput por seccao e chama fuse_section (§3.1-3.2).
+
+    Opcao A: quando secao esta presente, funde so essa seccao com IR acumulado.
+    Luxonis (fonte=luxonis): mapeia pessoas_estimadas -> luxonis_count.
+    Prosegur (fonte=prosegur): ja chega via contagem_prosegur.
+    """
     try:
         from app.fusion import FusionInput, fuse_section
 
         usar_ir = USAR_IR.get(cid, True)
-        estado = params.get("estado_sensor", "ok")
+        estado  = params.get("estado_sensor", "ok")
         prosegur = params.get("contagem_prosegur")
-        entradas = params.get("entradas_ir")
-        saidas = params.get("saidas_ir")
+        fonte   = (params.get("fonte") or "lilygo").lower()
+        secao   = (params.get("secao") or "").lower() or None  # "m" | "f" | "u" | None
 
         if is_unisex(cid):
+            luxonis  = params.get("pessoas_estimadas") if fonte == "luxonis" else None
+            wifi_est = params.get("pessoas_estimadas") if fonte != "luxonis" else None
             fuse_section(FusionInput(
                 section_id=cid,
                 ts_ms=ts_ms,
-                entradas_ir=entradas,
-                saidas_ir=saidas,
-                pessoas_estimadas=params.get("pessoas_estimadas"),
+                entradas_ir=None,
+                saidas_ir=None,
+                pessoas_estimadas=wifi_est,
+                luxonis_count=luxonis,
+                contagem_prosegur=prosegur,
+                estado_sensor=estado,
+                usar_ir=False,
+            ))
+
+        elif secao in ("m", "f"):
+            # LLH/LRH/LLW/LRW: usa IR acumulado do store (soma das duas portas)
+            agg   = ingest_store.get(cid)
+            agg_p = agg["params"] if agg else {}
+            if secao == "m":
+                ir_in  = agg_p.get("entradas_ir_m")
+                ir_out = agg_p.get("saidas_ir_m")
+            else:
+                ir_in  = agg_p.get("entradas_ir_f")
+                ir_out = agg_p.get("saidas_ir_f")
+            luxonis  = params.get("pessoas_estimadas") if fonte == "luxonis" else None
+            wifi_est = params.get("pessoas_estimadas") if fonte == "lilygo"  else None
+            fuse_section(FusionInput(
+                section_id=f"{cid}_{secao}",
+                ts_ms=ts_ms,
+                entradas_ir=ir_in,
+                saidas_ir=ir_out,
+                pessoas_estimadas=wifi_est,
+                luxonis_count=luxonis,
                 contagem_prosegur=prosegur,
                 estado_sensor=estado,
                 usar_ir=usar_ir,
             ))
+
         else:
-            homens = params.get("homens")
+            # Legado: sem secao — divide WiFi por M e F, usa IR total
+            homens  = params.get("homens")
             mulheres = params.get("mulheres")
-            pessoas = params.get("pessoas_estimadas")
+            pessoas  = params.get("pessoas_estimadas")
+            entradas = params.get("entradas_ir")
+            saidas   = params.get("saidas_ir")
             for gender, pessoas_g in (("m", homens), ("f", mulheres)):
                 wifi_est = (
                     float(pessoas_g) if pessoas_g is not None
                     else (float(pessoas) / 2.0 if pessoas is not None else None)
                 )
+                luxonis = (
+                    float(pessoas_g) if fonte == "luxonis" and pessoas_g is not None
+                    else (float(pessoas) / 2.0 if fonte == "luxonis" and pessoas is not None else None)
+                )
                 fuse_section(FusionInput(
                     section_id=f"{cid}_{gender}",
                     ts_ms=ts_ms,
-                    entradas_ir=None,   # IR cluster-level; sem split por genero
-                    saidas_ir=None,
-                    pessoas_estimadas=wifi_est,
+                    entradas_ir=entradas,
+                    saidas_ir=saidas,
+                    pessoas_estimadas=wifi_est if fonte != "luxonis" else None,
+                    luxonis_count=luxonis,
                     contagem_prosegur=prosegur,
                     estado_sensor=estado,
-                    usar_ir=False,      # sem IR seccional disponivel
+                    usar_ir=usar_ir,
                 ))
     except Exception:
         pass   # fusao nao pode parar a ingestao
@@ -129,6 +174,10 @@ async def ingest(
 
     p = body.params.model_dump()
 
+    # Extrair campos de roteamento Opcao A (ficam tambem em p para _run_fusion)
+    porta = (p.get("porta") or "").strip().upper() or None
+    secao = (p.get("secao") or "").strip().lower() or None
+
     # I-3: fusao vive no backend — strip confianca_cruzada do node
     p.pop("confianca_cruzada", None)
 
@@ -146,9 +195,14 @@ async def ingest(
         p["ocupacao_instantanea"] = occupancy_pct(cid, float(p["pessoas_estimadas"]))
 
     ts_ms = body.ts or int(_time.time() * 1000)
-    ingest_store.put(cid, p, ts_ms)
+    ingest_store.put(cid, p, ts_ms, porta=porta, secao=secao)
     _run_fusion(cid, p, ts_ms)
-    return {"ok": True, "cluster_id": cid, "stored_ts": ts_ms, "unisex": is_unisex(cid)}
+    return {
+        "ok": True, "cluster_id": cid, "stored_ts": ts_ms,
+        "unisex": is_unisex(cid),
+        "porta": porta, "secao": secao,
+        "fonte": p.get("fonte", "lilygo"),
+    }
 
 
 @router.get("/ingest/status")
