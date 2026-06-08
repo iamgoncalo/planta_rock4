@@ -168,7 +168,7 @@ export default function InstallPage() {
         return cl.data_source === 'real';
       }
       const pk = `${src.porta}_${src.secao}`;
-      return cl.portas_ativas.includes(pk);
+      return (cl.portas_ativas || []).includes(pk);
     }
     if (src.type === 'camera') {
       return sensors.some(s =>
@@ -380,10 +380,10 @@ export default function InstallPage() {
                         <span className="in-panel-k">último sinal</span>
                         <span className="in-panel-v">{fmtAge(panelCluster.age_s)} atrás</span>
                       </div>
-                      {panelCluster.portas_ativas.length > 0 && (
+                      {(panelCluster.portas_ativas || []).length > 0 && (
                         <div className="in-panel-row">
                           <span className="in-panel-k">portas activas</span>
-                          <span className="in-panel-v in-mono">{panelCluster.portas_ativas.join(', ')}</span>
+                          <span className="in-panel-v in-mono">{(panelCluster.portas_ativas || []).join(', ')}</span>
                         </div>
                       )}
                     </>
