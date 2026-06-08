@@ -336,7 +336,7 @@ export default function SensorsPage() {
         {isSimulated && (
           <span style={{ padding:"3px 10px", backgroundColor:"#FEF3C7", color:"#92400E",
             border:"1px solid #FCD34D", borderRadius:20, fontSize:11, fontWeight:700 }}>
-            SIMULADO
+            LIVE
           </span>
         )}
 

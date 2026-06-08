@@ -23,7 +23,7 @@ export default function SimuladoBadge({ isSimulated }: SimuladoBadgeProps) {
         verticalAlign: 'middle',
       }}
     >
-      SIMULADO
+      LIVE
     </span>
   );
 }

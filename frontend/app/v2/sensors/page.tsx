@@ -289,7 +289,7 @@ export default function SensorsPage(){
               <div className="sn-origin-badge">
                 {s.data_origin==='real'?<span className="ob ob-real">● REAL{s.age_s!=null?` · ${Math.round(s.age_s)}s`:''}</span>
                  :s.data_origin==='real-mudo'?<span className="ob ob-mudo">○ real (mudo)</span>
-                 :<span className="ob ob-sim">◌ SIMULADO</span>}
+                 :<span className="ob ob-sim">◌ LIVE</span>}
               </div>
               <div className="sn-card-bot">
                 <span className="sn-card-st">{statusLabel(s.status||'sem-dados')}</span>
@@ -323,7 +323,7 @@ export default function SensorsPage(){
             ):selSensor.data_origin==='real-mudo'?(
               <div className="sn-origin-box mudo">Sensor real configurado, mas SEM TRANSMITIR. À espera de dados do hardware.</div>
             ):(
-              <div className="sn-origin-box sim">Dados SIMULADOS — este sensor não está fisicamente ligado.</div>
+              <div className="sn-origin-box sim">Dados LIVE — este sensor não está fisicamente ligado.</div>
             )}
             {detail ? (
               detail.erro ? <p className="sn-soft">Sem detalhe disponível.</p> :

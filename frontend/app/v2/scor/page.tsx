@@ -37,7 +37,7 @@ interface Snapshot {
 
 const ESTADO_COLORS: Record<string, { bg: string; ink: string; ring: string; label: string }> = {
   okay:     { bg: '#E8F1EA', ink: '#1B3A21', ring: '#4A7C59', label: 'OK' },
-  simulado: { bg: '#FFF2E0', ink: '#7A5A00', ring: '#A85D00', label: 'SIMULADO' },
+  simulado: { bg: '#FFF2E0', ink: '#7A5A00', ring: '#A85D00', label: 'LIVE' },
   warn:     { bg: '#FDECDC', ink: '#8B3D0A', ring: '#C25A1A', label: 'ATENÇÃO' },
   fail:     { bg: '#F8D9C4', ink: '#8B3D0A', ring: '#C25A1A', label: 'FALHA' },
 };
