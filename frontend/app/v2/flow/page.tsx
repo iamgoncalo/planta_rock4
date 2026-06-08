@@ -56,6 +56,29 @@ interface Redirect {
   pax: number;
 }
 
+interface HistoryHour {
+  hour: number;
+  avg_occ: number;
+  avg_entrada: number;
+  n: number;
+}
+
+interface ForecastItem {
+  cluster_id: string;
+  secao: string;
+  ocupacao_prevista_pct: number;
+  surge_factor: number;
+  n_amostras: number;
+}
+
+interface ForecastData {
+  cluster: string | null;
+  hour: number | null;
+  surge_avg: number;
+  forecast: ForecastItem[];
+  profiles: Array<{ festival_day: string; hour: number; show_name: string; palco: string; surge_factor: number; }>;
+}
+
 interface FlowData {
   ts: number;
   cor_critica: string;
@@ -93,6 +116,8 @@ export default function FlowPage() {
   const [clock, setClock] = useState('');
   const [reanchorBusy, setReanchorBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [histTimeline, setHistTimeline] = useState<HistoryHour[]>([]);
+  const [forecastData, setForecastData] = useState<ForecastData | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -110,6 +135,26 @@ export default function FlowPage() {
     } catch {
       // silent — WS or next poll will recover
     }
+  }, []);
+
+  const fetchHistory = useCallback(async () => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const r = await fetch(`${API_BASE}/api/v1/flow/history/timeline?day=${today}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      if (Array.isArray(d.timeline)) setHistTimeline(d.timeline);
+    } catch {/**/}
+  }, []);
+
+  const fetchForecast = useCallback(async () => {
+    try {
+      const nextHour = (new Date().getUTCHours() + 1) % 24;
+      const r = await fetch(`${API_BASE}/api/v1/flow/forecast?hour=${nextHour}`);
+      if (!r.ok) return;
+      const d = await r.json();
+      if (d.forecast) setForecastData(d as ForecastData);
+    } catch {/**/}
   }, []);
 
   // Clock tick
@@ -163,6 +208,14 @@ export default function FlowPage() {
       ws?.close();
     };
   }, []);
+
+  // History + forecast: fetch once on mount, then every 5 min (data changes slowly)
+  useEffect(() => {
+    fetchHistory();
+    fetchForecast();
+    const id = setInterval(() => { fetchHistory(); fetchForecast(); }, 300_000);
+    return () => clearInterval(id);
+  }, [fetchHistory, fetchForecast]);
 
   const doReanchor = async (cluster_id: string, secao: string, ocupacao_camara: number) => {
     setReanchorBusy(true);
@@ -250,6 +303,26 @@ export default function FlowPage() {
 
         {/* LEFT — 14 section cards */}
         <div className="fl-sections">
+          {/* Sparkline de ocupação por hora — só aparece nos dias de festival */}
+          {histTimeline.length > 0 && (
+            <div className="fl-hist-strip">
+              {histTimeline.map((h) => {
+                const pct = Math.min(100, Math.max(0, h.avg_occ));
+                return (
+                  <div key={h.hour} className="fl-hist-col">
+                    <div
+                      className="fl-hist-bar"
+                      style={{
+                        height: `${Math.max(2, Math.round(pct * 0.38))}px`,
+                        background: pct > 80 ? '#C25A1A' : pct > 60 ? '#B08020' : '#2E7D4F',
+                      }}
+                    />
+                    <div className="fl-hist-hour">{h.hour}h</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {!data && (
             <div className="fl-loading">A carregar motor de fluxos…</div>
           )}
@@ -350,6 +423,52 @@ export default function FlowPage() {
               <strong style={{ color: cal.qualidade_global_pct < 40 ? '#C25A1A' : '#1B3A21' }}>
                 {cal.qualidade_global_pct}%
               </strong>
+            </div>
+          )}
+
+          {/* Previsão próxima hora — só mostra se surge > 1 (horas com show activo) */}
+          {forecastData && forecastData.surge_avg > 1.0 && (
+            <div className="fl-forecast-block">
+              <div className="fl-cal-section-label" style={{ marginTop: 2 }}>
+                Previsão +1h · ×{forecastData.surge_avg.toFixed(1)} surge
+              </div>
+              {forecastData.profiles?.slice(0, 1).map((p, i) => (
+                <div key={i} className="fl-forecast-show">
+                  <span
+                    className="fl-forecast-show-name"
+                    style={{ color: p.surge_factor >= 2.5 ? '#C25A1A' : '#1B3A21' }}
+                  >
+                    {p.show_name}
+                  </span>
+                </div>
+              ))}
+              {forecastData.forecast.length > 0 ? (
+                <div className="fl-forecast-list">
+                  {[...forecastData.forecast]
+                    .sort((a, b) => b.ocupacao_prevista_pct - a.ocupacao_prevista_pct)
+                    .slice(0, 6)
+                    .map((f, i) => (
+                      <div key={i} className="fl-forecast-row">
+                        <span className="fl-forecast-id">
+                          {f.cluster_id.toUpperCase()}{f.secao !== 'U' ? ` ${f.secao}` : ''}
+                        </span>
+                        <div className="fl-forecast-track">
+                          <div
+                            className="fl-forecast-fill"
+                            style={{
+                              width: `${Math.min(100, f.ocupacao_prevista_pct)}%`,
+                              background: f.ocupacao_prevista_pct > 80 ? '#C25A1A'
+                                : f.ocupacao_prevista_pct > 60 ? '#B08020' : '#2E7D4F',
+                            }}
+                          />
+                        </div>
+                        <span className="fl-forecast-pct">{Math.round(f.ocupacao_prevista_pct)}%</span>
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <div className="fl-cal-ok" style={{ fontSize: 10 }}>Sem histórico para previsão</div>
+              )}
             </div>
           )}
 
@@ -541,6 +660,8 @@ export default function FlowPage() {
           overflow: hidden;
           padding: clamp(6px, .8vw, 12px);
           border-right: 1px solid #ECE9E2;
+          display: flex;
+          flex-direction: column;
         }
 
         .fl-loading {
@@ -549,10 +670,11 @@ export default function FlowPage() {
         }
 
         .fl-grid {
+          flex: 1;
+          min-height: 0;
           display: grid;
           grid-template-columns: repeat(4, 1fr);
           gap: clamp(4px, .5vw, 8px);
-          height: 100%;
           align-content: start;
         }
 
@@ -793,6 +915,92 @@ export default function FlowPage() {
           font-size: 13px; z-index: 200;
           box-shadow: 0 6px 20px rgba(0,0,0,.18);
           pointer-events: none;
+        }
+
+        /* History sparkline strip */
+        .fl-hist-strip {
+          flex-shrink: 0;
+          height: 54px;
+          border-bottom: 1px solid #ECE9E2;
+          display: flex;
+          align-items: flex-end;
+          gap: 2px;
+          padding: 4px 4px 0;
+          margin-bottom: 4px;
+          overflow: hidden;
+        }
+        .fl-hist-col {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 1px;
+          min-width: 0;
+        }
+        .fl-hist-bar {
+          width: 100%;
+          border-radius: 1px 1px 0 0;
+          transition: height .4s ease;
+        }
+        .fl-hist-hour {
+          font-size: 6px;
+          color: #B7B9B0;
+          font-family: monospace;
+          line-height: 1.2;
+          white-space: nowrap;
+        }
+
+        /* Forecast block */
+        .fl-forecast-block {
+          display: flex;
+          flex-direction: column;
+          gap: 3px;
+          border-bottom: 1px solid #ECE9E2;
+          padding-bottom: 6px;
+        }
+        .fl-forecast-show { padding: 1px 0; }
+        .fl-forecast-show-name {
+          font-weight: 600;
+          font-size: clamp(9px, .67vw, 11px);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          display: block;
+        }
+        .fl-forecast-list { display: flex; flex-direction: column; gap: 2px; }
+        .fl-forecast-row {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          font-size: clamp(8px, .62vw, 10px);
+        }
+        .fl-forecast-id {
+          flex: 0 0 54px;
+          font-family: monospace;
+          font-size: clamp(7px, .57vw, 9px);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .fl-forecast-track {
+          flex: 1;
+          height: 5px;
+          background: #ECE9E2;
+          border-radius: 3px;
+          overflow: hidden;
+        }
+        .fl-forecast-fill {
+          height: 100%;
+          border-radius: 3px;
+          transition: width .4s ease;
+        }
+        .fl-forecast-pct {
+          flex: 0 0 26px;
+          text-align: right;
+          font-variant-numeric: tabular-nums;
+          font-weight: 600;
+          font-size: clamp(7px, .57vw, 9px);
         }
 
         /* Scrollbar cal panel */

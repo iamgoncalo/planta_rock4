@@ -1,13 +1,17 @@
 """
 PlantaOS — Router Flow: calibração e verificação de fluxos por secção.
-GET  /api/v1/flow          → snapshot do motor (para a página /v2/flow)
-POST /api/v1/flow/tick     → tick do orquestrador (60s), calcula routing
-POST /api/v1/flow/reanchor → corrige deriva de IR com âncora da câmara
+GET  /api/v1/flow                     → snapshot do motor (para a página /v2/flow)
+GET  /api/v1/flow/history?day=&hour=  → snapshots históricos por secção
+GET  /api/v1/flow/forecast?cluster=&hour= → previsão via crowd_profiles
+POST /api/v1/flow/tick                → tick do orquestrador (60s)
+POST /api/v1/flow/reanchor            → corrige deriva de IR com câmara
 """
 from __future__ import annotations
 
 import time
-from fastapi import APIRouter
+from datetime import date
+from typing import Optional
+from fastapi import APIRouter, Query, Response
 from pydantic import BaseModel
 
 from app.services.flow import FlowEngine, SensorReading, CLUSTERS, get_engine
@@ -147,3 +151,185 @@ def post_reanchor(req: ReanchorReq):
     engine = get_engine()
     engine.reanchor(req.cluster_id, req.secao, req.ocupacao_camara)
     return {"ok": True, "cluster_id": req.cluster_id, "secao": req.secao}
+
+
+@router.get("/history")
+async def get_history(
+    response: Response,
+    day: Optional[str] = Query(None, description="Dia de festival: YYYY-MM-DD"),
+    hour: Optional[int] = Query(None, description="Hora UTC 0-23"),
+):
+    """Snapshots históricos por secção para um dia+hora do festival.
+    Devolve a média de ocupacao_pct, fluxo_entrada, fluxo_saida, fila
+    agrupada por cluster_id+secao. Cache 30s (os snapshots gravam a cada 60s).
+    """
+    response.headers["Cache-Control"] = "public, max-age=30, s-maxage=30"
+    try:
+        from app.db import AsyncSessionLocal
+        from app.models.db.flow_history import FlowSnapshot
+        from sqlalchemy import select, func as sqlfunc
+        if AsyncSessionLocal is None:
+            return {"day": day, "hour": hour, "sections": [], "count": 0}
+
+        fday: Optional[date] = None
+        if day:
+            try:
+                fday = date.fromisoformat(day)
+            except ValueError:
+                return {"error": "day inválido — usar YYYY-MM-DD"}
+
+        async with AsyncSessionLocal() as session:
+            q = select(
+                FlowSnapshot.cluster_id,
+                FlowSnapshot.secao,
+                sqlfunc.avg(FlowSnapshot.ocupacao_pct).label("ocupacao_pct_avg"),
+                sqlfunc.avg(FlowSnapshot.fluxo_entrada).label("fluxo_entrada_avg"),
+                sqlfunc.avg(FlowSnapshot.fluxo_saida).label("fluxo_saida_avg"),
+                sqlfunc.avg(FlowSnapshot.fila).label("fila_avg"),
+                sqlfunc.avg(FlowSnapshot.confianca_pct).label("confianca_avg"),
+                sqlfunc.count(FlowSnapshot.id).label("n_samples"),
+            ).group_by(FlowSnapshot.cluster_id, FlowSnapshot.secao)
+            if fday is not None:
+                q = q.where(FlowSnapshot.festival_day == fday)
+            if hour is not None:
+                q = q.where(FlowSnapshot.hour == hour)
+            rows = (await session.execute(q)).all()
+
+        sections = [
+            {
+                "cluster_id": r.cluster_id, "secao": r.secao,
+                "ocupacao_pct_avg": round(r.ocupacao_pct_avg or 0, 1),
+                "fluxo_entrada_avg": round(r.fluxo_entrada_avg or 0, 2),
+                "fluxo_saida_avg": round(r.fluxo_saida_avg or 0, 2),
+                "fila_avg": round(r.fila_avg or 0, 1),
+                "confianca_avg": round(r.confianca_avg or 0, 1),
+                "n_samples": r.n_samples,
+            }
+            for r in rows
+        ]
+        return {"day": day, "hour": hour, "sections": sections, "count": len(sections)}
+    except Exception as exc:
+        return {"error": str(exc), "sections": []}
+
+
+@router.get("/history/timeline")
+async def get_history_timeline(
+    response: Response,
+    day: Optional[str] = Query(None, description="Dia de festival: YYYY-MM-DD"),
+):
+    """Série temporal por hora — média de todas as secções. Usado pelo sparkline.
+    Devolve lista de {hour, avg_occ, n_sections} para o dia pedido.
+    """
+    response.headers["Cache-Control"] = "public, max-age=30, s-maxage=30"
+    try:
+        from app.db import AsyncSessionLocal
+        from app.models.db.flow_history import FlowSnapshot
+        from sqlalchemy import select, func as sqlfunc
+        if AsyncSessionLocal is None:
+            return {"day": day, "timeline": []}
+
+        fday: Optional[date] = None
+        if day:
+            try:
+                fday = date.fromisoformat(day)
+            except ValueError:
+                return {"error": "day inválido — usar YYYY-MM-DD"}
+
+        async with AsyncSessionLocal() as session:
+            q = select(
+                FlowSnapshot.hour,
+                sqlfunc.avg(FlowSnapshot.ocupacao_pct).label("avg_occ"),
+                sqlfunc.avg(FlowSnapshot.fluxo_entrada).label("avg_entrada"),
+                sqlfunc.count(FlowSnapshot.id).label("n"),
+            ).group_by(FlowSnapshot.hour).order_by(FlowSnapshot.hour)
+            if fday is not None:
+                q = q.where(FlowSnapshot.festival_day == fday)
+            rows = (await session.execute(q)).all()
+
+        timeline = [
+            {"hour": r.hour, "avg_occ": round(r.avg_occ or 0, 1),
+             "avg_entrada": round(r.avg_entrada or 0, 2), "n": r.n}
+            for r in rows
+        ]
+        return {"day": day, "timeline": timeline}
+    except Exception as exc:
+        return {"error": str(exc), "timeline": []}
+
+
+@router.get("/forecast")
+async def get_forecast(
+    response: Response,
+    cluster: Optional[str] = Query(None, description="cluster_id ex: wc-01"),
+    hour: Optional[int] = Query(None, description="Hora futura UTC 0-23"),
+):
+    """Previsão de ocupação via JOIN flow_snapshot × crowd_profiles.
+    Calcula a média histórica do mesmo slot horário em todos os dias de festival,
+    ponderada pelo surge_factor do show previsto nessa hora.
+    Cache 5 min (crowd_profiles são estáticos, histórico cresce lentamente).
+    """
+    response.headers["Cache-Control"] = "public, max-age=300, s-maxage=300"
+    try:
+        from app.db import AsyncSessionLocal
+        from app.models.db.flow_history import FlowSnapshot, CrowdProfile
+        from sqlalchemy import select, func as sqlfunc
+        if AsyncSessionLocal is None:
+            return {"cluster": cluster, "hour": hour, "forecast": [], "profiles": []}
+
+        async with AsyncSessionLocal() as session:
+            # Média histórica do slot horário (todos os dias de festival)
+            q_hist = select(
+                FlowSnapshot.cluster_id,
+                FlowSnapshot.secao,
+                sqlfunc.avg(FlowSnapshot.ocupacao_pct).label("occ_hist"),
+                sqlfunc.avg(FlowSnapshot.fluxo_entrada).label("fl_entrada_hist"),
+                sqlfunc.count(FlowSnapshot.id).label("n"),
+            ).group_by(FlowSnapshot.cluster_id, FlowSnapshot.secao)
+            if cluster:
+                q_hist = q_hist.where(FlowSnapshot.cluster_id == cluster.lower())
+            if hour is not None:
+                q_hist = q_hist.where(FlowSnapshot.hour == hour)
+            hist_rows = (await session.execute(q_hist)).all()
+
+            # Perfis de show para esta hora (todos os dias)
+            q_prof = select(CrowdProfile)
+            if hour is not None:
+                q_prof = q_prof.where(CrowdProfile.hour == hour)
+            prof_rows = (await session.execute(q_prof)).scalars().all()
+
+        # Surge médio para esta hora (média dos 4 dias)
+        surge_avg = (
+            sum(p.surge_factor or 1.0 for p in prof_rows) / len(prof_rows)
+            if prof_rows else 1.0
+        )
+
+        forecast = [
+            {
+                "cluster_id": r.cluster_id,
+                "secao": r.secao,
+                "ocupacao_prevista_pct": round(min(100.0, (r.occ_hist or 0) * surge_avg), 1),
+                "fluxo_entrada_previsto": round((r.fl_entrada_hist or 0) * surge_avg, 2),
+                "base_historica_pct": round(r.occ_hist or 0, 1),
+                "surge_factor": round(surge_avg, 2),
+                "n_amostras": r.n,
+            }
+            for r in hist_rows
+        ]
+        profiles = [
+            {
+                "festival_day": str(p.festival_day),
+                "hour": p.hour,
+                "show_name": p.show_name,
+                "palco": p.palco,
+                "expected_attendance": p.expected_attendance,
+                "surge_factor": p.surge_factor,
+            }
+            for p in prof_rows
+        ]
+        return {
+            "cluster": cluster, "hour": hour,
+            "surge_avg": round(surge_avg, 2),
+            "forecast": forecast,
+            "profiles": profiles,
+        }
+    except Exception as exc:
+        return {"error": str(exc), "forecast": []}

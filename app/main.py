@@ -65,7 +65,8 @@ def create_app() -> FastAPI:
             from app.db import engine, Base
             # Import models so they register with Base.metadata
             from app.models.db.sensors import ClusterRef, Sensor, SensorHealth, MaintenanceLog, TerminalLog  # noqa
-            from app.models.db.operations import CleaningLog, StaffRoster, IncidentLog  # noqa  # noqa
+            from app.models.db.operations import CleaningLog, StaffRoster, IncidentLog  # noqa
+            from app.models.db.flow_history import FlowSnapshot, CrowdProfile  # noqa
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
             logger.info("DB startup: tables ensured (SQLAlchemy create_all)")
@@ -112,6 +113,16 @@ def create_app() -> FastAPI:
             logger.info("MQTT bridge started")
         except Exception as e:
             logger.warning(f"MQTT bridge startup warning: {e}")
+
+        # Seed crowd profiles e iniciar loop de snapshots de fluxo
+        try:
+            from app.services.flow_history import seed_crowd_profiles_if_empty, flush_snapshot_loop
+            from app.db import AsyncSessionLocal
+            await seed_crowd_profiles_if_empty(AsyncSessionLocal)
+            asyncio.create_task(flush_snapshot_loop())
+            logger.info("Flow history: crowd profiles seeded + snapshot loop started")
+        except Exception as e:
+            logger.warning(f"Flow history startup warning: {e}")
 
     # CORS — allow frontend dev servers and the API itself
     app.add_middleware(
