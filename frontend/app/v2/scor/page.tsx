@@ -335,11 +335,11 @@ export default function ScorPage() {
     <>
       <div style={{
         position: 'fixed',
-        top: 'var(--header-h, 72px)', left: 0, right: 0,
-        bottom: 'calc(var(--searchbar-h, 88px) + 40px)',
+        top: 'var(--header-h, 72px)', left: 0, right: 0, bottom: 0,
+        height: 'calc(100svh - var(--header-h, 72px))',
         overflow: 'hidden',
         display: 'flex', flexDirection: 'column',
-        padding: '24px clamp(16px, 2.6vw, 32px) 0',
+        padding: '14px clamp(16px, 2.6vw, 32px) 0',
       }}>
         <div style={{ marginBottom: 12, flexShrink: 0 }}>
           <div className="section-label">Pipelines · SCOR live · 8 clusters</div>
@@ -441,7 +441,7 @@ export default function ScorPage() {
         )}
 
         {/* Grid de 8 clusters */}
-        <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14, alignContent: 'start' }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingBottom: 96, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 14, alignContent: 'start' }}>
           {!snap && (
             <div style={{ padding: 32, color: 'var(--color-muted)', gridColumn: '1 / -1' }}>
               A aguardar primeiros dados do stream...
