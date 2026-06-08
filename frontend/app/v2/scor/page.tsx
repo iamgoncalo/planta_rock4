@@ -336,7 +336,7 @@ export default function ScorPage() {
       <div style={{
         position: 'fixed',
         top: 'var(--header-h, 72px)', left: 0, right: 0,
-        bottom: 'calc(var(--searchbar-h, 88px) + 24px)',
+        bottom: 'calc(var(--searchbar-h, 88px) + 40px)',
         overflow: 'hidden',
         display: 'flex', flexDirection: 'column',
         padding: '24px clamp(16px, 2.6vw, 32px) 0',

@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'https://api.plantarockinrio.com';
-const REFRESH_MS = 30_000;
+const REFRESH_MS = 30000;
 
 interface ScheduledClean {
   slot_id: string;
@@ -42,11 +42,11 @@ interface CalendarResponse {
   total_slots: number;
 }
 
-const STATUS_META: Record<string, { bg: string; ink: string; label: string }> = {
-  done:        { bg: '#E8F1EA', ink: '#1B3A21', label: 'Concluída' },
-  in_progress: { bg: '#FFF7DC', ink: '#7A5A00', label: 'Em curso' },
-  planned:     { bg: '#FAFAF7', ink: '#1A1A1A', label: 'Planeada' },
-  overdue:     { bg: '#F8D9C4', ink: '#8B3D0A', label: 'Atrasada' },
+const STATUS_META: Record<string, { bg: string; ink: string; ring: string; label: string }> = {
+  done:        { bg: '#E8F1EA', ink: '#1B3A21', ring: '#4A7C59', label: 'Concluida' },
+  in_progress: { bg: '#FFF7DC', ink: '#7A5A00', ring: '#C9A227', label: 'Em curso' },
+  planned:     { bg: '#F4F4F0', ink: '#3A3A36', ring: '#C9C9C0', label: 'Planeada' },
+  overdue:     { bg: '#FDECDC', ink: '#8B3D0A', ring: '#C25A1A', label: 'Atrasada' },
 };
 
 function fmtTime(iso: string): string {
@@ -56,354 +56,289 @@ function fmtTime(iso: string): string {
 function fmtDate(iso: string): string {
   const d = new Date(iso);
   const today = new Date();
-  const isToday = d.toDateString() === today.toDateString();
+  if (d.toDateString() === today.toDateString()) return 'hoje';
   const tomorrow = new Date(today);
   tomorrow.setDate(today.getDate() + 1);
-  const isTomorrow = d.toDateString() === tomorrow.toDateString();
-  if (isToday) return 'hoje';
-  if (isTomorrow) return 'amanhã';
+  if (d.toDateString() === tomorrow.toDateString()) return 'amanha';
   return d.toLocaleDateString('pt-PT', { weekday: 'short', day: '2-digit', month: 'short' });
+}
+
+function genderMark(g: string): string {
+  if (g === 'M') return 'M';
+  if (g === 'F') return 'F';
+  return 'U';
 }
 
 export default function CleaningPage() {
   const [schedule, setSchedule] = useState<ScheduledClean[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
-  const [activeTeam, setActiveTeam] = useState<string>('—');
+  const [activeTeam, setActiveTeam] = useState<string>('--');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filterUnit, setFilterUnit] = useState<string>('all');
   const [openSlot, setOpenSlot] = useState<ScheduledClean | null>(null);
 
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     try {
       const [calRes, staffRes] = await Promise.all([
-        fetch(`${API_BASE}/api/v1/cleaning/calendar?hours=24`).then(r => r.json() as Promise<CalendarResponse>),
-        fetch(`${API_BASE}/api/v1/cleaning/staff`).then(r => r.json() as Promise<StaffResponse>),
+        fetch(API_BASE + '/api/v1/cleaning/calendar?hours=24').then(r => r.json() as Promise<CalendarResponse>),
+        fetch(API_BASE + '/api/v1/cleaning/staff').then(r => r.json() as Promise<StaffResponse>),
       ]);
-      setSchedule(calRes.schedule);
-      setStaff(staffRes.staff);
-      setActiveTeam(staffRes.active_team_now);
+      setSchedule(calRes.schedule || []);
+      setStaff(staffRes.staff || []);
+      setActiveTeam(staffRes.active_team_now || '--');
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'erro');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchAll();
     const iv = setInterval(fetchAll, REFRESH_MS);
     return () => clearInterval(iv);
+  }, [fetchAll]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpenSlot(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Lista de units únicos no schedule
-  const uniqueUnits = useMemo(() => {
-    const s = new Set(schedule.map(x => x.unit_id));
-    return Array.from(s).sort();
+  const counts = useMemo(() => {
+    const c = { done: 0, in_progress: 0, planned: 0, overdue: 0 };
+    schedule.forEach(s => { if (s.status in c) (c as Record<string, number>)[s.status]++; });
+    return c;
   }, [schedule]);
 
-  // Filtragem
-  const filtered = useMemo(() => {
-    if (filterUnit === 'all') return schedule;
-    return schedule.filter(s => s.unit_id === filterUnit);
-  }, [schedule, filterUnit]);
-
-  // Próxima limpeza (a mais próxima planned ou in_progress)
   const next = useMemo(() => {
-    const future = schedule.filter(s => s.status === 'planned' || s.status === 'in_progress');
-    if (future.length === 0) return null;
-    return future.sort((a, b) =>
-      new Date(a.scheduled_for_iso).getTime() - new Date(b.scheduled_for_iso).getTime()
-    )[0];
+    const fut = schedule.filter(s => s.status === 'planned' || s.status === 'in_progress');
+    if (!fut.length) return null;
+    return fut.sort((a, b) => new Date(a.scheduled_for_iso).getTime() - new Date(b.scheduled_for_iso).getTime())[0];
   }, [schedule]);
 
-  // Por equipa
+  // proxima limpeza por unidade (uma linha por WC, sem timeline infinita)
+  const perUnit = useMemo(() => {
+    const map = new Map<string, ScheduledClean>();
+    const now = Date.now();
+    [...schedule]
+      .sort((a, b) => new Date(a.scheduled_for_iso).getTime() - new Date(b.scheduled_for_iso).getTime())
+      .forEach(s => {
+        const t = new Date(s.scheduled_for_iso).getTime();
+        const cur = map.get(s.unit_id);
+        const isUpcoming = s.status === 'planned' || s.status === 'in_progress' || s.status === 'overdue';
+        if (!cur) { map.set(s.unit_id, s); return; }
+        const curUpcoming = cur.status === 'planned' || cur.status === 'in_progress' || cur.status === 'overdue';
+        if (isUpcoming && !curUpcoming) map.set(s.unit_id, s);
+        else if (isUpcoming && curUpcoming && t < new Date(cur.scheduled_for_iso).getTime() && t >= now - 3600000) map.set(s.unit_id, s);
+      });
+    return Array.from(map.values()).sort((a, b) => a.unit_id.localeCompare(b.unit_id));
+  }, [schedule]);
+
   const teamA = staff.filter(p => p.team === 'A');
   const teamB = staff.filter(p => p.team === 'B');
 
-  // Agrupar schedule por hora para timeline
-  const byHour = useMemo(() => {
-    const map = new Map<string, ScheduledClean[]>();
-    filtered.forEach(s => {
-      const d = new Date(s.scheduled_for_iso);
-      const key = `${d.toISOString().slice(0, 13)}:00`;  // YYYY-MM-DDTHH:00
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(s);
-    });
-    return Array.from(map.entries()).sort();
-  }, [filtered]);
-
   return (
-    <div style={{ padding: '32px 24px 96px', maxWidth: 1400, margin: '0 auto' }}>
-      <div style={{ marginBottom: 18 }}>
-        <div className="section-label">Operações · Limpeza · Calendário preditivo</div>
-        <h1 className="serif" style={{
-          fontSize: 'clamp(26px, 4vw, 40px)',
-          fontWeight: 500, color: 'var(--color-ink)', lineHeight: 1.1, marginBottom: 6,
-        }}>
-          Limpeza
-        </h1>
-        <p style={{ color: 'var(--color-muted)', fontSize: 13, lineHeight: 1.55 }}>
-          Calendário preditivo · próximas 24h · 14 unidades × cadência 1×/h ·{' '}
-          2 equipas (A: tarde · B: noite) · equipa activa agora{' '}
-          <strong style={{ color: 'var(--color-ink)' }}>{activeTeam}</strong>
-        </p>
-      </div>
-
-      {error && (
-        <div style={{ padding: 10, marginBottom: 12, background: '#FDECDC', color: '#8B3D0A', borderRadius: 8, fontSize: 13 }}>
-          {error}
-        </div>
-      )}
-
-      {/* PRÓXIMA LIMPEZA — banner grande */}
-      {next && (
-        <div style={{
-          background: 'linear-gradient(135deg, #1B3A21 0%, #2D5938 100%)',
-          color: 'white', borderRadius: 12, padding: 18, marginBottom: 16,
-          display: 'grid', gridTemplateColumns: '1fr auto', gap: 14, alignItems: 'center',
-        }}>
+    <div style={{
+      position: 'fixed', inset: 0, top: 72,
+      display: 'flex', flexDirection: 'column',
+      overflow: 'hidden', background: 'var(--color-bg, #FAFAF7)',
+      fontFamily: 'Inter, system-ui, sans-serif',
+    }}>
+      {/* CABECALHO + KPIs */}
+      <div style={{ flexShrink: 0, padding: '14px clamp(16px,3vw,32px) 10px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 8 }}>
           <div>
-            <div className="mono" style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', opacity: 0.7, marginBottom: 4 }}>
-              Próxima limpeza
+            <div style={{ fontSize: 10, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--color-muted,#6B6B63)' }}>
+              Operacoes · Limpeza · Calendario preditivo
             </div>
-            <div className="serif" style={{ fontSize: 22, fontWeight: 500, marginBottom: 6, lineHeight: 1.15 }}>
-              {next.unit_label} · {fmtTime(next.scheduled_for_iso)}
-            </div>
-            <div style={{ fontSize: 13, opacity: 0.85 }}>
-              {next.person_name && (
-                <>
-                  Atribuída a <strong>{next.person_name}</strong> (equipa {next.team})
-                  {next.person_phone && (
-                    <> · <a href={`tel:${next.person_phone}`} style={{ color: '#A8E6BC' }}>{next.person_phone}</a></>
-                  )}
-                </>
-              )}
+            <h1 style={{ fontSize: 'clamp(20px,3vw,30px)', fontWeight: 600, color: 'var(--color-ink,#0D1A0F)', lineHeight: 1.1, margin: '2px 0 0' }}>
+              Limpeza
+            </h1>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Kpi label="Concluidas" value={counts.done} ring="#4A7C59" />
+            <Kpi label="Em curso" value={counts.in_progress} ring="#C9A227" />
+            <Kpi label="Planeadas" value={counts.planned} ring="#C9C9C0" />
+            <Kpi label="Atrasadas" value={counts.overdue} ring="#C25A1A" highlight={counts.overdue > 0} />
+            <div style={{ padding: '6px 12px', borderRadius: 10, background: '#1B3A21', color: 'white', textAlign: 'center' }}>
+              <div style={{ fontSize: 9, letterSpacing: '0.08em', textTransform: 'uppercase', opacity: 0.7 }}>Equipa agora</div>
+              <div style={{ fontSize: 18, fontWeight: 700, lineHeight: 1 }}>{activeTeam}</div>
             </div>
           </div>
-          <span style={{
-            background: 'rgba(255,255,255,0.18)',
-            padding: '6px 14px', borderRadius: 999,
-            fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
-          }}>
-            {next.status === 'in_progress' ? 'EM CURSO' : 'PLANEADA'}
-          </span>
         </div>
-      )}
-
-      {/* EQUIPAS */}
-      <div style={{
-        display: 'grid', gridTemplateColumns: '1fr 1fr',
-        gap: 12, marginBottom: 16,
-      }}>
-        <TeamCard letter="A" name="Tarde" range="14:00–22:00" people={teamA} isActive={activeTeam === 'A'} />
-        <TeamCard letter="B" name="Noite" range="22:00–06:00" people={teamB} isActive={activeTeam === 'B'} />
-      </div>
-
-      {/* FILTRO */}
-      <div style={{
-        display: 'flex', gap: 8, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap',
-      }}>
-        <span className="mono" style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--color-muted)' }}>
-          Filtrar:
-        </span>
-        <button
-          onClick={() => setFilterUnit('all')}
-          style={chipStyle(filterUnit === 'all')}
-        >Todas ({schedule.length})</button>
-        {uniqueUnits.map(u => (
-          <button key={u} onClick={() => setFilterUnit(u)} style={chipStyle(filterUnit === u)}>
-            {u.replace('_', ' ').replace('M', '♂').replace('F', '♀')}
-          </button>
-        ))}
-      </div>
-
-      {/* TIMELINE — por hora */}
-      <div style={{
-        background: 'white',
-        border: '1px solid var(--color-border)',
-        borderRadius: 10,
-        marginBottom: 24,
-      }}>
-        {loading && (
-          <div style={{ padding: 24, color: 'var(--color-muted)' }}>A carregar calendário...</div>
+        {error && (
+          <div role="alert" style={{ marginTop: 8, padding: 8, background: '#FDECDC', color: '#8B3D0A', borderRadius: 8, fontSize: 12 }}>
+            Erro a carregar: {error}
+          </div>
         )}
-        {byHour.map(([hour, slots]) => (
-          <div key={hour} style={{
-            display: 'grid',
-            gridTemplateColumns: '110px 1fr',
-            borderBottom: '1px solid var(--color-border)',
-          }}>
-            <div style={{
-              background: '#FAFAF7',
-              padding: '10px 12px',
-              fontSize: 11,
-              color: 'var(--color-muted)',
-              borderRight: '1px solid var(--color-border)',
-            }}>
-              <div className="mono" style={{ fontSize: 14, color: 'var(--color-ink)', fontWeight: 600 }}>
-                {fmtTime(hour)}
+      </div>
+
+      {/* CORPO: equipas (esq) + grelha de unidades (dir) */}
+      <div style={{
+        flex: 1, minHeight: 0, display: 'grid',
+        gridTemplateColumns: 'minmax(220px, 0.9fr) 2.4fr',
+        gap: 'clamp(8px,1.5vw,16px)', padding: '0 clamp(16px,3vw,32px) 14px',
+        overflow: 'hidden',
+      }}>
+        {/* EQUIPAS */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0, overflow: 'hidden' }}>
+          {next && (
+            <div style={{ background: 'linear-gradient(135deg,#1B3A21,#2D5938)', color: 'white', borderRadius: 12, padding: 12, flexShrink: 0 }}>
+              <div style={{ fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', opacity: 0.7 }}>Proxima limpeza</div>
+              <div style={{ fontSize: 16, fontWeight: 600, margin: '3px 0', lineHeight: 1.15 }}>
+                {next.unit_label} · {fmtTime(next.scheduled_for_iso)}
               </div>
-              <div className="mono" style={{ fontSize: 9, marginTop: 2 }}>{fmtDate(hour)}</div>
+              {next.person_name && (
+                <div style={{ fontSize: 12, opacity: 0.9 }}>
+                  {next.person_name} (equipa {next.team})
+                  {next.person_phone && <> · <a href={'tel:' + next.person_phone} style={{ color: '#A8E6BC' }}>{next.person_phone}</a></>}
+                </div>
+              )}
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, padding: 6 }}>
-              {slots.map(s => {
+          )}
+          <div style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateRows: '1fr 1fr', gap: 10 }}>
+            <TeamCard letter="A" name="Tarde" range="14:00-22:00" people={teamA} isActive={activeTeam === 'A'} />
+            <TeamCard letter="B" name="Noite" range="22:00-06:00" people={teamB} isActive={activeTeam === 'B'} />
+          </div>
+        </div>
+
+        {/* GRELHA POR UNIDADE */}
+        <div style={{
+          background: 'white', border: '1px solid var(--color-border,#E5E5DF)', borderRadius: 12,
+          padding: 12, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden',
+        }}>
+          <div style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--color-muted,#6B6B63)', marginBottom: 8, flexShrink: 0 }}>
+            Proxima limpeza por unidade · {perUnit.length} unidades
+          </div>
+          {loading ? (
+            <div style={{ color: 'var(--color-muted,#6B6B63)', fontSize: 13 }}>A carregar...</div>
+          ) : (
+            <div style={{
+              flex: 1, minHeight: 0, overflowY: 'auto',
+              display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+              gap: 8, alignContent: 'start',
+            }}>
+              {perUnit.map(s => {
                 const st = STATUS_META[s.status] || STATUS_META.planned;
                 return (
                   <button
-                    key={s.slot_id}
+                    key={s.unit_id}
                     onClick={() => setOpenSlot(s)}
+                    aria-label={'Limpeza ' + s.unit_label + ' as ' + fmtTime(s.scheduled_for_iso) + ', estado ' + st.label}
                     style={{
-                      background: st.bg,
-                      color: st.ink,
-                      border: '1px solid transparent',
-                      borderRadius: 6,
-                      padding: '6px 9px',
-                      fontSize: 10,
-                      cursor: 'pointer',
-                      textAlign: 'left',
+                      textAlign: 'left', cursor: 'pointer',
+                      background: st.bg, color: st.ink,
+                      border: '1px solid ' + st.ring, borderRadius: 10, padding: '9px 11px',
                     }}
                   >
-                    <div style={{ fontSize: 11, fontWeight: 700 }}>
-                      {fmtTime(s.scheduled_for_iso)} · {s.unit_id.replace('_M', '♂').replace('_F', '♀')}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 13, fontWeight: 700 }}>{s.cluster_id}</span>
+                      <span style={{ fontSize: 9, fontWeight: 700, opacity: 0.7 }}>{genderMark(s.gender)}</span>
                     </div>
-                    <div className="mono" style={{ fontSize: 9, marginTop: 1, opacity: 0.7 }}>
-                      {s.person_name?.split(' ')[0] || '—'}
-                    </div>
+                    <div style={{ fontSize: 16, fontWeight: 700, margin: '2px 0' }}>{fmtTime(s.scheduled_for_iso)}</div>
+                    <div style={{ fontSize: 10, opacity: 0.85 }}>{st.label} · {fmtDate(s.scheduled_for_iso)}</div>
+                    <div style={{ fontSize: 10, opacity: 0.7, marginTop: 1 }}>{s.person_name ? s.person_name.split(' ')[0] : '--'}</div>
                   </button>
                 );
               })}
             </div>
-          </div>
-        ))}
+          )}
+        </div>
       </div>
 
-      {/* MODAL */}
+      {/* DRAWER LATERAL (coerente com /v2/scor) */}
       {openSlot && (
-        <div
-          onClick={() => setOpenSlot(null)}
-          style={{
-            position: 'fixed', inset: 0,
-            background: 'rgba(0,0,0,0.4)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            zIndex: 1000, padding: 16,
-          }}
-        >
-          <div onClick={(e) => e.stopPropagation()} style={{
-            background: 'white', borderRadius: 14, padding: 24,
-            maxWidth: 440, width: '100%',
-          }}>
-            <div className="mono" style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--color-muted)', marginBottom: 4 }}>
+        <>
+          <div onClick={() => setOpenSlot(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(2px)', zIndex: 900 }} />
+          <aside
+            role="dialog" aria-modal="true" aria-label={'Detalhe da limpeza ' + openSlot.unit_label}
+            style={{
+              position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(420px, 92vw)',
+              background: 'white', zIndex: 901, padding: 24, overflowY: 'auto',
+              boxShadow: '-8px 0 32px rgba(0,0,0,0.18)', fontFamily: 'Inter, system-ui, sans-serif',
+            }}
+          >
+            <div style={{ fontSize: 10, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--color-muted,#6B6B63)' }}>
               Limpeza programada
             </div>
-            <h2 className="serif" style={{ fontSize: 24, fontWeight: 500, marginBottom: 10 }}>
+            <h2 style={{ fontSize: 24, fontWeight: 700, margin: '4px 0 12px', color: 'var(--color-ink,#0D1A0F)' }}>
               {openSlot.unit_label}
             </h2>
-            <div style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--color-ink)', marginBottom: 16 }}>
+            <div style={{ fontSize: 14, lineHeight: 1.7, color: 'var(--color-ink,#0D1A0F)', marginBottom: 16 }}>
               <strong>{fmtTime(openSlot.scheduled_for_iso)}</strong> · {fmtDate(openSlot.scheduled_for_iso)}<br />
-              Duração esperada: {openSlot.expected_duration_min} min<br />
-              Estado: {STATUS_META[openSlot.status]?.label}
+              Duracao esperada: {openSlot.expected_duration_min} min<br />
+              Estado: {(STATUS_META[openSlot.status] || STATUS_META.planned).label}
             </div>
             {openSlot.person_name && (
-              <div style={{
-                background: '#FAFAF7', padding: 14, borderRadius: 10, marginBottom: 14,
-              }}>
-                <div className="mono" style={{ fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--color-muted)', marginBottom: 4 }}>
-                  Atribuída a
-                </div>
-                <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--color-ink)' }}>
-                  {openSlot.person_name}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--color-muted)', marginTop: 2 }}>
-                  Equipa {openSlot.team}
-                </div>
+              <div style={{ background: '#F4F4F0', padding: 14, borderRadius: 10, marginBottom: 16 }}>
+                <div style={{ fontSize: 9, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--color-muted,#6B6B63)', marginBottom: 4 }}>Atribuida a</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--color-ink,#0D1A0F)' }}>{openSlot.person_name}</div>
+                <div style={{ fontSize: 12, color: 'var(--color-muted,#6B6B63)', marginTop: 2 }}>Equipa {openSlot.team}</div>
                 {openSlot.person_phone && (
-                  <a href={`tel:${openSlot.person_phone}`} style={{
-                    display: 'inline-block', marginTop: 8,
-                    fontSize: 13, color: '#4A7C59', textDecoration: 'none',
-                  }}>
-                    📞 {openSlot.person_phone}
+                  <a href={'tel:' + openSlot.person_phone} style={{ display: 'inline-block', marginTop: 8, fontSize: 13, color: '#4A7C59', textDecoration: 'none', fontWeight: 600 }}>
+                    Ligar: {openSlot.person_phone}
                   </a>
                 )}
               </div>
             )}
-            <button onClick={() => setOpenSlot(null)} style={{
-              width: '100%',
-              background: 'transparent',
-              border: '1px solid var(--color-border)',
-              borderRadius: 10,
-              padding: '10px 18px',
-              fontSize: 13, cursor: 'pointer',
-              color: 'var(--color-muted)',
+            <button onClick={() => setOpenSlot(null)} autoFocus style={{
+              width: '100%', background: 'transparent', border: '1px solid var(--color-border,#E5E5DF)',
+              borderRadius: 10, padding: '11px 18px', fontSize: 13, cursor: 'pointer', color: 'var(--color-muted,#6B6B63)',
             }}>Fechar</button>
-          </div>
-        </div>
+          </aside>
+        </>
       )}
+    </div>
+  );
+}
+
+function Kpi({ label, value, ring, highlight }: { label: string; value: number; ring: string; highlight?: boolean }) {
+  return (
+    <div style={{
+      padding: '6px 12px', borderRadius: 10, background: 'white',
+      border: '1px solid ' + (highlight ? '#C25A1A' : 'var(--color-border,#E5E5DF)'),
+      textAlign: 'center', minWidth: 64,
+    }}>
+      <div style={{ fontSize: 20, fontWeight: 700, color: highlight ? '#C25A1A' : 'var(--color-ink,#0D1A0F)', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 9, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-muted,#6B6B63)', marginTop: 3 }}>
+        <span aria-hidden="true" style={{ display: 'inline-block', width: 6, height: 6, borderRadius: 999, background: ring, marginRight: 4, verticalAlign: 'middle' }} />
+        {label}
+      </div>
     </div>
   );
 }
 
 function TeamCard({ letter, name, range, people, isActive }: {
-  letter: string; name: string; range: string;
-  people: Staff[]; isActive: boolean;
+  letter: string; name: string; range: string; people: Staff[]; isActive: boolean;
 }) {
   return (
     <div style={{
       background: isActive ? '#E8F1EA' : 'white',
-      border: `1px solid ${isActive ? '#4A7C59' : 'var(--color-border)'}`,
-      borderRadius: 10, padding: 14,
+      border: '1px solid ' + (isActive ? '#4A7C59' : 'var(--color-border,#E5E5DF)'),
+      borderRadius: 12, padding: 12, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden',
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexShrink: 0 }}>
         <div>
-          <div className="serif" style={{ fontSize: 22, fontWeight: 500, color: 'var(--color-ink)' }}>
-            Equipa {letter} · {name}
-          </div>
-          <div className="mono" style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>
-            {range}
-          </div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--color-ink,#0D1A0F)' }}>Equipa {letter} · {name}</div>
+          <div style={{ fontSize: 10, color: 'var(--color-muted,#6B6B63)', marginTop: 1 }}>{range}</div>
         </div>
         {isActive && (
-          <span style={{
-            background: '#1B3A21', color: 'white',
-            padding: '3px 10px', borderRadius: 999,
-            fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
-            height: 'fit-content',
-          }}>● ACTIVA</span>
+          <span style={{ background: '#1B3A21', color: 'white', padding: '3px 9px', borderRadius: 999, fontSize: 9, fontWeight: 700, letterSpacing: '0.08em' }}>ACTIVA</span>
         )}
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 5 }}>
         {people.map(p => (
-          <div key={p.person_id} style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr auto',
-            fontSize: 12,
-            paddingBottom: 4,
-            borderBottom: '1px dashed var(--color-border)',
-          }}>
+          <div key={p.person_id} style={{ display: 'grid', gridTemplateColumns: '1fr auto', fontSize: 12, paddingBottom: 4, borderBottom: '1px dashed var(--color-border,#E5E5DF)' }}>
             <div>
-              <span style={{ fontWeight: 600, color: 'var(--color-ink)' }}>{p.name}</span>
-              <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--color-muted)', textTransform: 'capitalize' }}>{p.role}</span>
+              <span style={{ fontWeight: 600, color: 'var(--color-ink,#0D1A0F)' }}>{p.name}</span>
+              <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--color-muted,#6B6B63)', textTransform: 'capitalize' }}>{p.role}</span>
             </div>
-            <a href={`tel:${p.phone}`} className="mono" style={{
-              fontSize: 11, color: '#4A7C59', textDecoration: 'none',
-            }}>{p.phone}</a>
+            <a href={'tel:' + p.phone} style={{ fontSize: 11, color: '#4A7C59', textDecoration: 'none' }}>{p.phone}</a>
           </div>
         ))}
       </div>
     </div>
   );
-}
-
-function chipStyle(active: boolean): React.CSSProperties {
-  return {
-    background: active ? '#1B3A21' : 'white',
-    color: active ? 'white' : 'var(--color-ink)',
-    border: `1px solid ${active ? '#1B3A21' : 'var(--color-border)'}`,
-    borderRadius: 999,
-    padding: '4px 10px',
-    fontSize: 11,
-    fontWeight: 600,
-    cursor: 'pointer',
-  };
 }
