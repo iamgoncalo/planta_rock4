@@ -4,12 +4,13 @@ from app.models.chat import ChatRequest, ChatResponse
 from app.services.state import get_live_payload, get_active_show
 from app.services.routing import compute_route
 from app.services import chat as chat_service
+from app.clusters_geo import ANCHOR_GPS as _ANCHOR_GPS
 
 router = APIRouter(prefix="/api/v1", tags=["chat"])
 
-# Default venue centre for chat routing context
-_DEFAULT_LAT = 38.782
-_DEFAULT_LON = -9.093
+# Default venue centre for chat routing context (derived from clusters_geo — única fonte)
+_DEFAULT_LAT = _ANCHOR_GPS["lat"]
+_DEFAULT_LON = _ANCHOR_GPS["lon"]
 
 
 @router.post("/chat", response_model=ChatResponse)

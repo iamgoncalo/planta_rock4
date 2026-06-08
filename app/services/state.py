@@ -13,6 +13,7 @@ from app.models.sections import (
     LivePayload,
 )
 from app.models.sensors import IRReading, WiFiAggregateReading, CameraMLReading, SensorHealth
+from app.clusters_geo import ANCHOR_GPS as _ANCHOR_GPS
 from app.models.alerts import Alert
 from app.models.shows import Show
 from app.models.tv import TVScreenState
@@ -349,8 +350,8 @@ def get_tv_state(screen_id: str) -> TVScreenState:
 
     # Use a fixed reference point for each screen (centre of venue as default)
     # Screens are assumed at the centre; a real implementation would map screen_id -> GPS
-    user_lat = 38.782
-    user_lon = -9.093
+    user_lat = _ANCHOR_GPS["lat"]
+    user_lon = _ANCHOR_GPS["lon"]
 
     try:
         route = compute_route(payload.sections, user_lat, user_lon, active_show)

@@ -25,17 +25,8 @@ LILYGO_REAL_DAYS = round(LILYGO_BATTERY_MAH / LILYGO_DRAW_MA / 24 * 0.85, 1)
 ONLINE_THRESHOLD_S = 70
 DEGRADED_THRESHOLD_S = 300
 
-# Cluster GPS centroids (static metadata — never in recurring telemetry)
-_CLUSTER_GPS = {
-    "WC-01": (38.7870, -9.0950),  # Norte — entrada principal
-    "WC-02": (38.7860, -9.0900),  # Nordeste — Palco Mundo
-    "WC-03": (38.7780, -9.0930),  # Sul — Super Bock Stage
-    "WC-04": (38.7820, -9.0880),  # Este — Zona VIP
-    "WC-05": (38.7820, -9.0980),  # Oeste — Praça da Alimentação
-    "WC-06": (38.7780, -9.0890),  # Sudeste — Campismo
-    "WC-07": (38.7870, -9.0990),  # Noroeste — Estacionamento
-    "WC-08": (38.7830, -9.0930),  # Centro — Praça Central
-}
+# Cluster GPS centroids (importado de clusters_geo — única fonte de verdade)
+from app.clusters_geo import CLUSTER_GPS as _CLUSTER_GPS
 
 # Coverage radius per sensor type (metres, for GeoJSON circles)
 COVERAGE_RADIUS_M = {

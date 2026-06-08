@@ -99,3 +99,13 @@ def distance_m(id_a: str, id_b: str) -> float:
     m = {c["id"]: c for c in CLUSTERS_GEO}
     a, b = m[id_a], m[id_b]
     return round(math.hypot(a["e_m"] - b["e_m"], a["n_m"] - b["n_m"]), 1)
+
+
+# Pré-computado para importação directa: {"WC-01": (lat, lon), ...}
+CLUSTER_GPS: dict[str, tuple[float, float]] = {
+    c["id"]: (
+        _gps_from_metres(c["e_m"], c["n_m"])["lat"],
+        _gps_from_metres(c["e_m"], c["n_m"])["lon"],
+    )
+    for c in CLUSTERS_GEO
+}

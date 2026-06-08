@@ -6,18 +6,7 @@ from typing import Optional
 from app.models.sections import SectionState, UNISEX_SECTIONS
 from app.models.routing import RouteOption, BathroomRouteDecision, AvoidanceReason
 from app.models.shows import Show, ShowImpact
-
-# Static GPS centroids for each WC cluster (never changes)
-_WC_GPS: dict[str, tuple[float, float]] = {
-    "WC-01": (38.782, -9.093),
-    "WC-02": (38.781, -9.092),
-    "WC-03": (38.780, -9.094),
-    "WC-04": (38.783, -9.091),
-    "WC-05": (38.779, -9.095),
-    "WC-06": (38.784, -9.090),
-    "WC-07": (38.778, -9.096),
-    "WC-08": (38.785, -9.089),
-}
+from app.clusters_geo import CLUSTER_GPS as _WC_GPS, ANCHOR_GPS as _ANCHOR_GPS
 
 # Show impact configuration: which clusters are affected by a show
 _SHOW_IMPACTS: dict[str, ShowImpact] = {

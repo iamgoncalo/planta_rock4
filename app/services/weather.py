@@ -14,10 +14,11 @@ from datetime import datetime, timezone, timedelta
 import httpx
 
 from app.models.operations import WeatherNow
+from app.clusters_geo import ANCHOR_GPS as _ANCHOR_GPS
 
-# Parque Tejo, Lisboa
-LAT = 38.7828
-LON = -9.0928
+# Âncora GPS do recinto (clusters_geo — única fonte)
+LAT = _ANCHOR_GPS["lat"]
+LON = _ANCHOR_GPS["lon"]
 LOCATION = "Lisboa · Parque Tejo"
 
 CACHE_TTL_S = 600  # 10 minutos

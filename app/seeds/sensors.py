@@ -12,17 +12,8 @@ Seed script for sensor nodes — Rock in Rio Lisboa 2026.
 """
 from __future__ import annotations
 
-# Cluster GPS centroids
-_CLUSTER_GPS = {
-    "WC-01": (38.7870, -9.0950),
-    "WC-02": (38.7860, -9.0900),
-    "WC-03": (38.7780, -9.0930),
-    "WC-04": (38.7820, -9.0880),
-    "WC-05": (38.7820, -9.0980),
-    "WC-06": (38.7780, -9.0890),
-    "WC-07": (38.7870, -9.0990),
-    "WC-08": (38.7830, -9.0930),
-}
+# Cluster GPS centroids (clusters_geo — única fonte de verdade)
+from app.clusters_geo import CLUSTER_GPS as _CLUSTER_GPS
 
 _UNISEX = {"WC-05", "WC-06"}
 
