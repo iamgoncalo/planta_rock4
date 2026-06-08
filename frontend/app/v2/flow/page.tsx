@@ -85,11 +85,6 @@ function fonteIcon(f: string): string {
   return '·';
 }
 
-function fmtTime(min: number): string {
-  if (min < 1) return '<1 min';
-  return `${Math.round(min)} min`;
-}
-
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function FlowPage() {
@@ -227,11 +222,11 @@ export default function FlowPage() {
           </div>
         </div>
 
-        {/* kpi_02 — Avg occupancy */}
+        {/* Qualidade global calibração — único nesta página */}
         <div className="fl-kpi">
-          <div className="fl-kpi-label">Ocup. Média</div>
-          <div className="fl-kpi-val" style={{ color: (kpis?.kpi_02 ?? 0) >= 80 ? '#C25A1A' : '#0D1A0F' }}>
-            {kpis?.kpi_02 ?? '—'}<span className="fl-kpi-unit">%</span>
+          <div className="fl-kpi-label">Qualidade</div>
+          <div className="fl-kpi-val" style={{ color: (cal?.qualidade_global_pct ?? 100) < 40 ? '#C25A1A' : '#0D1A0F' }}>
+            {cal?.qualidade_global_pct ?? '—'}<span className="fl-kpi-unit">%</span>
           </div>
         </div>
 
@@ -280,36 +275,29 @@ export default function FlowPage() {
                     </span>
                   </div>
 
-                  {/* Occupancy big number + bar */}
-                  <div className="fl-occ-row">
-                    <span
-                      className="fl-occ-num"
-                      style={{ color: crit ? '#C25A1A' : warn ? '#B08020' : '#0D1A0F' }}
-                    >
-                      {Math.round(s.ocupacao_pct)}
-                    </span>
-                    <span className="fl-occ-unit">%</span>
-                    <div className="fl-occ-bar">
+                  {/* Ocupação — secundária, barra fina */}
+                  <div className="fl-occ-compact">
+                    <div className="fl-occ-cbar">
                       <div
-                        className="fl-occ-fill"
+                        className="fl-occ-cfill"
                         style={{
                           width: `${Math.min(100, s.ocupacao_pct)}%`,
                           background: crit ? '#C25A1A' : warn ? '#B08020' : '#2E7D4F',
                         }}
                       />
                     </div>
+                    <span
+                      className="fl-occ-cpct"
+                      style={{ color: crit ? '#C25A1A' : warn ? '#B08020' : '#6B7268' }}
+                    >
+                      {Math.round(s.ocupacao_pct)}%
+                    </span>
                   </div>
 
-                  {/* Flows */}
-                  <div className="fl-flows">
-                    <span className="fl-flow-in">↑ {s.fluxo_entrada_pmin.toFixed(1)}/min</span>
-                    <span className="fl-flow-out">↓ {s.fluxo_saida_pmin.toFixed(1)}/min</span>
-                  </div>
-
-                  {/* Queue + wait */}
-                  <div className="fl-queue-row">
-                    <span className="fl-queue-n">{s.fila_actual} fila</span>
-                    <span className="fl-queue-t">{fmtTime(s.tempo_espera_min)}</span>
+                  {/* Fluxos — elemento principal desta página */}
+                  <div className="fl-flows-main">
+                    <span className="fl-flow-in">↑ {s.fluxo_entrada_pmin.toFixed(1)}<span className="fl-flow-unit">/min</span></span>
+                    <span className="fl-flow-out">↓ {s.fluxo_saida_pmin.toFixed(1)}<span className="fl-flow-unit">/min</span></span>
                   </div>
 
                   {/* Confidence + sources */}
@@ -335,6 +323,25 @@ export default function FlowPage() {
         {/* RIGHT — Calibration panel */}
         <div className="fl-cal-panel">
           <div className="fl-cal-title">Calibração</div>
+
+          {/* Routing activo — elemento mais único desta página, topo do painel */}
+          <div className="fl-cal-section-label" style={{ marginTop: 0 }}>
+            Redistribuição activa
+          </div>
+          {routing.length > 0 ? (
+            <div className="fl-routing-list">
+              {routing.slice(0, 6).map((r, i) => (
+                <div key={i} className="fl-route-row">
+                  <span className="fl-route-from">{r.from}</span>
+                  <span className="fl-route-arrow">→</span>
+                  <span className="fl-route-to">{r.to}</span>
+                  <span className="fl-route-pax">{r.pax} pax</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="fl-cal-ok">Sem redistribuições activas</div>
+          )}
 
           {/* Global quality */}
           {cal && (
@@ -428,22 +435,7 @@ export default function FlowPage() {
             ))}
           </div>
 
-          {/* Routing arrows */}
-          {routing.length > 0 && (
-            <>
-              <div className="fl-cal-section-label">Routing activo</div>
-              <div className="fl-routing-list">
-                {routing.slice(0, 4).map((r, i) => (
-                  <div key={i} className="fl-route-row">
-                    <span className="fl-route-from">{r.from}</span>
-                    <span className="fl-route-arrow">→</span>
-                    <span className="fl-route-to">{r.to}</span>
-                    <span className="fl-route-pax">{r.pax} pax</span>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
+          {/* Routing block moved to top of panel */}
         </div>
       </div>
 
@@ -629,20 +621,30 @@ export default function FlowPage() {
           transition: width .5s ease;
         }
 
-        .fl-flows {
-          display: flex; gap: 6px;
-          font-size: clamp(8px, .65vw, 10px);
+        /* Occupancy compact (secondary) */
+        .fl-occ-compact {
+          display: flex; align-items: center; gap: 5px;
+        }
+        .fl-occ-cbar {
+          flex: 1; height: 3px;
+          background: #ECE9E2; border-radius: 2px; overflow: hidden;
+        }
+        .fl-occ-cfill { height: 100%; border-radius: 2px; transition: width .5s ease; }
+        .fl-occ-cpct {
+          font-size: clamp(8px, .62vw, 10px); font-weight: 700;
+          font-variant-numeric: tabular-nums; flex-shrink: 0;
+        }
+
+        /* Fluxos — elemento principal do card */
+        .fl-flows-main {
+          display: flex; gap: 8px;
+          font-size: clamp(11px, .9vw, 14px);
+          font-weight: 600;
           font-variant-numeric: tabular-nums;
         }
-        .fl-flow-in { color: #2E7D4F; font-weight: 600; }
+        .fl-flow-in { color: #2E7D4F; }
         .fl-flow-out { color: #6B7268; }
-
-        .fl-queue-row {
-          display: flex; justify-content: space-between;
-          font-size: clamp(8px, .65vw, 10px);
-        }
-        .fl-queue-n { font-weight: 600; }
-        .fl-queue-t { color: #6B7268; font-variant-numeric: tabular-nums; }
+        .fl-flow-unit { font-weight: 400; font-size: .82em; }
 
         .fl-conf-row {
           display: flex; justify-content: space-between; align-items: center;
