@@ -323,7 +323,7 @@ export default function SensorsPage(){
             ):selSensor.data_origin==='real-mudo'?(
               <div className="sn-origin-box mudo">Sensor real configurado, mas SEM TRANSMITIR. À espera de dados do hardware.</div>
             ):(
-              <div className="sn-origin-box sim">Dados LIVE — este sensor não está fisicamente ligado.</div>
+              <div className="sn-origin-box sim">Sensor ainda não ligado — à espera do hardware.</div>
             )}
             {detail ? (
               detail.erro ? <p className="sn-soft">Sem detalhe disponível.</p> :
