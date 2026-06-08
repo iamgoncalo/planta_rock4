@@ -9,13 +9,18 @@ class Base(DeclarativeBase):
 
 
 def _engine():
-    return create_async_engine(get_settings().database_url, echo=False, pool_pre_ping=True)
+    url = get_settings().database_url
+    if not url:
+        return None
+    return create_async_engine(url, echo=False, pool_pre_ping=True)
 
 
 engine = _engine()
-AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False) if engine is not None else None
 
 
 async def get_db() -> AsyncSession:
+    if AsyncSessionLocal is None:
+        raise RuntimeError("DATABASE_URL não configurado")
     async with AsyncSessionLocal() as session:
         yield session

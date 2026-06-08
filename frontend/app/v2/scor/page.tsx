@@ -333,8 +333,15 @@ export default function ScorPage() {
 
   return (
     <>
-      <div style={{ padding: '32px 24px 96px', maxWidth: 1400, margin: '0 auto' }}>
-        <div style={{ marginBottom: 18 }}>
+      <div style={{
+        position: 'fixed',
+        top: 'var(--header-h, 72px)', left: 0, right: 0,
+        bottom: 'calc(var(--searchbar-h, 88px) + 24px)',
+        overflow: 'hidden',
+        display: 'flex', flexDirection: 'column',
+        padding: '24px clamp(16px, 2.6vw, 32px) 0',
+      }}>
+        <div style={{ marginBottom: 12, flexShrink: 0 }}>
           <div className="section-label">Pipelines · SCOR live · 8 clusters</div>
           <h1 className="serif" style={{
             fontSize: 'clamp(26px, 4vw, 40px)',
@@ -353,7 +360,7 @@ export default function ScorPage() {
         <div style={{
           background: streaming ? '#E8F1EA' : '#FFF2E0',
           border: `1px solid ${streaming ? '#4A7C59' : '#A85D00'}`,
-          borderRadius: 10, padding: '10px 14px', marginBottom: 16,
+          borderRadius: 10, padding: '10px 14px', marginBottom: 16, flexShrink: 0,
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           flexWrap: 'wrap', gap: 10,
         }}>
@@ -396,7 +403,7 @@ export default function ScorPage() {
         {snap && (
           <div style={{
             background: 'white', border: '1px solid var(--color-border, #E5E8E0)',
-            borderRadius: 12, padding: '14px 16px', marginBottom: 16,
+            borderRadius: 12, padding: '14px 16px', marginBottom: 16, flexShrink: 0,
           }}>
             <div style={{
               fontSize: 11, fontWeight: 700, letterSpacing: '0.06em',
@@ -434,7 +441,7 @@ export default function ScorPage() {
         )}
 
         {/* Grid de 8 clusters */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14 }}>
+        <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(330px, 1fr))', gap: 14, alignContent: 'start' }}>
           {!snap && (
             <div style={{ padding: 32, color: 'var(--color-muted)', gridColumn: '1 / -1' }}>
               A aguardar primeiros dados do stream...
