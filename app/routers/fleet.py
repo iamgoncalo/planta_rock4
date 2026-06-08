@@ -1,5 +1,6 @@
 """
 PlantaOS — Router da frota v5. DISTINCAO HONESTA real vs simulado.
+U3 audit: lê de ingest_store (dados reais) com fallback fleet_sim. Fonte única ✅
 Cada sensor decide a sua origem SOZINHO:
   - 'real-vivo'  : ha pacote no ingest_store ha <15s (dado verdadeiro)
   - 'real-mudo'  : devia transmitir mas nao ha pacote (>60s ou nunca) — em modo real

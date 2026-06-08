@@ -1,3 +1,4 @@
+# U3 audit: lê de get_alerts() (derivado de get_live_payload via state) — fonte única ✅
 from __future__ import annotations
 from fastapi import APIRouter
 from app.models.alerts import Alert

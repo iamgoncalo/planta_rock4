@@ -3,6 +3,7 @@ PlantaOS — Router de FUSAO. Expoe /api/v1/fusion/{cluster_id}?mode=sim|real.
 Combina o simulador (fleet_sim) com o motor de fusao (fusion). Em sim, gera
 parametros realistas por proximidade ao palco. Em real, le do ingest_store.
 Sempre robusto: nunca lanca 500, devolve {estado: "sem-dados"} se faltar tudo.
+U3 audit: lê de ingest_store (dados reais) com fallback fleet_sim. Fonte única ✅
 """
 from __future__ import annotations
 import time

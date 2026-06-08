@@ -2,6 +2,7 @@
 PlantaOS RIR 2026 — Device Control API
 All command endpoints route through MQTT to physical hardware.
 Terminal WebSocket provides real-time bidirectional control.
+U3 audit: gestão de hardware via MQTT — controlo, não métricas. Justificadamente independente. ✅
 """
 from __future__ import annotations
 

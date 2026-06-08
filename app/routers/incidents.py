@@ -1,6 +1,8 @@
 """
 PlantaOS · Incidents router
 ============================
+U3 audit: dados operacionais (DB) — registo de incidentes, não métricas de fluxo.
+Justificadamente independente de get_live_payload. ✅
 """
 from __future__ import annotations
 

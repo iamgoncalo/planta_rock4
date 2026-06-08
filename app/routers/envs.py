@@ -1,5 +1,6 @@
 """
 PlantaOS — Router de AMBIENTES (espacos de trabalho de sensores).
+U3 audit: lê de ingest_store + env_store por ambiente. Justificadamente separado. ✅
   GET    /api/v1/envs                      lista
   POST   /api/v1/envs                      criar {nome, modo, refresh_ms}
   GET    /api/v1/envs/{id}                 detalhe + sensores
