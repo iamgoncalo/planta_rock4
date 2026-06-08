@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback } from 'react';
 type Cfg = { raio_m: number; divisor: number; baseline: number; capacidade: number };
 type Casa = { cluster: string; ocupacao?: number | null; online?: boolean; telemoveis_detectados?: number | null; age_s?: number };
 
-const API = 'https://api.plantarockinrio.com';
+const API = process.env.NEXT_PUBLIC_API_URL || 'https://api.plantarockinrio.com';
 
 export default function CalibrarPage() {
   const [autenticado, setAutenticado] = useState(false);

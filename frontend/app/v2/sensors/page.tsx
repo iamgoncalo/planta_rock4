@@ -492,7 +492,7 @@ export default function SensorsPage(){
       </div>
 
       <style jsx>{`
-        .sn-root{padding:18px clamp(16px,2.6vw,32px);color:#0D1A0F;min-height:calc(100vh - 72px);}
+        .sn-root{position:fixed;top:var(--header-h,72px);left:0;right:0;bottom:calc(var(--searchbar-h,88px) + 24px);overflow:hidden;display:flex;flex-direction:column;padding:18px clamp(16px,2.6vw,32px);color:#0D1A0F;}
         .sn-head{display:flex;justify-content:space-between;align-items:flex-end;}
         .sn-eyebrow{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8A938B;}
         .sn-title{font-size:clamp(22px,2.6vw,30px);font-weight:600;margin:2px 0 0;}
@@ -522,7 +522,7 @@ export default function SensorsPage(){
         .sn-add:disabled{background:#C9CEC4;cursor:not-allowed;}
         .sn-help{font-size:12px;color:#8A938B;}
 
-        .sn-grid-wrap{margin-top:14px;}
+        .sn-grid-wrap{margin-top:14px;flex:1;overflow-y:auto;}
         .sn-loading{padding:30px;text-align:center;color:#8A938B;}
         .sn-empty{padding:40px;text-align:center;background:#FAFCF9;border:1px dashed #E5E8E0;border-radius:12px;}
         .sn-empty p{margin:6px 0;}

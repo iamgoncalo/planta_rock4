@@ -13,7 +13,7 @@ type Casa = {
   fontes?: Record<string, number>;
 };
 
-const API = 'https://api.plantarockinrio.com';
+const API = process.env.NEXT_PUBLIC_API_URL || 'https://api.plantarockinrio.com';
 
 function corEstado(estado?: string) {
   if (estado === 'cheio') return '#C25A1A';

@@ -111,7 +111,7 @@ export default function SensorConsole(){
   useEffect(()=>{
     if(tab!=='terminal')return;
     const proto=window.location.protocol==='https:'?'wss:':'ws:';
-    const url=`${proto}//api.plantarockinrio.com/api/v1/devices/terminal`;
+    const url=`${proto}//${(process.env.NEXT_PUBLIC_API_URL || 'https://api.plantarockinrio.com').replace(/^https?:\/\//, '')}/api/v1/devices/terminal`;
     let ws:WebSocket;
     try{
       ws=new WebSocket(url);

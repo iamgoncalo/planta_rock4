@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
 from app.models.sections import SECTION_IDS, SectionState, LivePayload, GlobalKPIs
 from app.services.state import get_live_payload, get_section_state
 
@@ -6,7 +6,8 @@ router = APIRouter(prefix="/v1", tags=["sections"])
 
 
 @router.get("/sections", response_model=LivePayload)
-async def list_sections():
+async def list_sections(response: Response):
+    response.headers["Cache-Control"] = "public, max-age=5, s-maxage=5"
     return get_live_payload()
 
 
@@ -21,6 +22,7 @@ async def get_section(section_id: str):
 
 
 @router.get("/kpis", response_model=GlobalKPIs)
-async def get_kpis():
+async def get_kpis(response: Response):
+    response.headers["Cache-Control"] = "public, max-age=5, s-maxage=5"
     payload = get_live_payload()
     return payload.kpis

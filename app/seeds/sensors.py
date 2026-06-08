@@ -235,7 +235,7 @@ if __name__ == "__main__":
     import psycopg2
     import os
 
-    DB_URL = os.environ.get("DATABASE_URL", "postgresql://goncalomelodemagalhaes@localhost/plantaos")
+    DB_URL = os.environ.get("DATABASE_URL", "")
     # Strip asyncpg prefix if accidentally passed
     DB_URL = DB_URL.replace("postgresql+asyncpg://", "postgresql://").replace("postgresql+psycopg2://", "postgresql://")
 

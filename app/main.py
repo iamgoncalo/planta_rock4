@@ -116,14 +116,7 @@ def create_app() -> FastAPI:
     # CORS — allow frontend dev servers and the API itself
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:3000",
-            "http://localhost:5173",
-            "http://localhost:8000",
-            "https://www.plantarockinrio.com",
-            "https://plantarockinrio.com",
-            "https://plantarockinrio.vercel.app",
-        ],
+        allow_origins=settings.cors_origins,
         allow_origin_regex=r"https://planta-rock4-.*\.vercel\.app",
         allow_credentials=True,
         allow_methods=["*"],

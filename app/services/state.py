@@ -1,5 +1,6 @@
 from __future__ import annotations
 import time
+import time as _time_module
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -123,11 +124,22 @@ def _cluster_id(section_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Payload cache (5 s, in-memory)
+# ---------------------------------------------------------------------------
+_PAYLOAD_CACHE: dict = {"data": None, "ts": 0.0}
+_PAYLOAD_TTL = 5.0
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 def get_live_payload() -> LivePayload:
-    """Return the current live (or simulated) state."""
+    """Return the current live (or simulated) state (cached 5 s)."""
+    now = _time_module.monotonic()
+    if _PAYLOAD_CACHE["data"] is not None and (now - _PAYLOAD_CACHE["ts"]) < _PAYLOAD_TTL:
+        return _PAYLOAD_CACHE["data"]  # type: ignore[return-value]
+
     sections = simulate_tick(CURRENT_SCENARIO, TICK)
 
     # Enriquecer com resultados de fusao canonicos (§3.5) quando disponiveis
@@ -169,13 +181,16 @@ def get_live_payload() -> LivePayload:
     # Build alert messages
     alert_msgs = [a.message for a in _ALERTS if not a.acknowledged]
 
-    return LivePayload(
+    result = LivePayload(
         kpis=kpis,
         sections=sections,
         alerts=alert_msgs,
         last_tick_age_s=round(time.time() - _TICK_TS, 1),
         any_simulated=any_sim,
     )
+    _PAYLOAD_CACHE["data"] = result
+    _PAYLOAD_CACHE["ts"] = now
+    return result
 
 
 def get_section_state(section_id: str) -> SectionState:

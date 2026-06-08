@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     ops_secret: str = "change-me"
 
     # Database
-    database_url: str = "postgresql+asyncpg://goncalomelodemagalhaes@localhost/plantaos"
+    database_url: str = ""
 
     # MQTT — device control bridge
     mqtt_host:     str = "localhost"
