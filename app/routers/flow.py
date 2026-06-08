@@ -85,18 +85,51 @@ class ReanchorReq(BaseModel):
     ocupacao_camara: float
 
 
+def _enrich_with_canonical(page: dict) -> dict:
+    """Sobrepõe ocupacao_pct / fila_actual / tempo_espera_min com get_live_payload().
+
+    Garante que /v2/flow mostra os mesmos números que /v2/screen, /v2/twin e
+    /v2/scor. Os campos de calibração do FlowEngine (residual, deriva,
+    confianca, routing) mantêm-se inalterados — são específicos desta página.
+    """
+    try:
+        from app.services.state import get_live_payload
+        live = get_live_payload()
+        sec_map = {s.section_id: s for s in live.sections}
+        for sec in page.get("secoes", []):
+            # "wc-01" + "M" → "WC-01_M"  |  "wc-05" + "U" → "WC-05"
+            if sec["secao"] == "U":
+                key = f"WC-{sec['cluster_id'][3:]}"
+            else:
+                key = f"WC-{sec['cluster_id'][3:]}_{sec['secao']}"
+            canon = sec_map.get(key)
+            if canon is not None:
+                sec["ocupacao_pct"] = canon.ocupacao_pct
+                sec["fila_actual"] = canon.fila_atual
+                sec["tempo_espera_min"] = canon.tempo_espera_min
+        # Recalcular kpi_02 (ocupação média) com os valores canónicos
+        secoes = page.get("secoes", [])
+        if secoes:
+            page["kpis"]["kpi_02"] = int(round(
+                sum(s["ocupacao_pct"] for s in secoes) / len(secoes)
+            ))
+    except Exception:
+        pass  # fallback ao FlowEngine em caso de erro inesperado
+    return page
+
+
 @router.get("")
 def get_flow():
     engine = get_engine()
     _feed_engine(engine)
-    return engine.flow_page()
+    return _enrich_with_canonical(engine.flow_page())
 
 
 def get_flow_snapshot() -> dict:
     """Chamado pelo WS para emitir flow_update sem polling extra."""
     try:
         engine = get_engine()
-        return engine.flow_page()
+        return _enrich_with_canonical(engine.flow_page())
     except Exception:
         return {}
 
