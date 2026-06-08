@@ -129,6 +129,8 @@ export default function InstallPage() {
   const [sensors, setSensors] = useState<SensorRec[]>([]);
   const [panel, setPanel] = useState<PanelSel | null>(null);
   const [copied, setCopied] = useState(false);
+  const [inoText, setInoText] = useState<string>('');
+  const [inoLoading, setInoLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const tickRef = useRef(0);
 
@@ -201,6 +203,24 @@ export default function InstallPage() {
     if (source.type !== 'lilygo') return;
     setPanel({ cluster, source });
     setCopied(false);
+    setInoText('');
+    if (source.ino) {
+      setInoLoading(true);
+      fetch(`${API}/api/v1/firmware/${source.ino}`, { cache: 'no-store' })
+        .then(r => r.ok ? r.text() : Promise.reject())
+        .then(t => setInoText(t))
+        .catch(() => setInoText('// nao consegui carregar o .ino — verifica a ligacao'))
+        .finally(() => setInoLoading(false));
+    }
+  }
+
+  function downloadIno(name: string, text: string) {
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
   }
 
   function closePanel() { setPanel(null); }
@@ -352,13 +372,22 @@ export default function InstallPage() {
                     <span className="in-panel-v in-mono">{panel.source.ino}</span>
                   </div>
                   <div className="in-panel-code">
-                    <pre>{inoHeader(panel.cluster, panel.source)}</pre>
-                    <button
-                      className={`in-copy-btn ${copied ? 'in-copy-done' : ''}`}
-                      onClick={() => copyText(inoHeader(panel.cluster, panel.source), () => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}
-                    >
-                      {copied ? '✓ copiado' : 'copiar'}
-                    </button>
+                    <pre>{inoLoading ? '// a carregar o .ino...' : (inoText || inoHeader(panel.cluster, panel.source))}</pre>
+                    <div className="in-code-btns">
+                      <button
+                        className={`in-copy-btn ${copied ? 'in-copy-done' : ''}`}
+                        onClick={() => copyText(inoText || inoHeader(panel.cluster, panel.source), () => { setCopied(true); setTimeout(() => setCopied(false), 2000); })}
+                      >
+                        {copied ? '✓ copiado' : 'copiar tudo'}
+                      </button>
+                      <button
+                        className="in-dl-btn"
+                        disabled={!inoText}
+                        onClick={() => panel.source.ino && downloadIno(panel.source.ino, inoText)}
+                      >
+                        ↓ descarregar
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -396,6 +425,10 @@ export default function InstallPage() {
       )}
 
       <style jsx>{`
+        .in-panel-code pre { max-height: 38vh; overflow: auto; white-space: pre; font-size: 11px; line-height: 1.45; }
+        .in-code-btns { display: flex; gap: 8px; margin-top: 8px; }
+        .in-dl-btn { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line, #E6E9EE); background: #fff; font-size: 12px; font-weight: 600; cursor: pointer; color: var(--ink, #0D1A0F); }
+        .in-dl-btn:disabled { opacity: 0.4; cursor: not-allowed; }
         /* ── Root no-scroll ── */
         .in-root {
           position: fixed;
