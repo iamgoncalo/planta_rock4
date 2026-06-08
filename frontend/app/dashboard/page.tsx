@@ -468,7 +468,7 @@ export default function DashboardPage() {
         </div>
         <div style={{ marginTop: 14, display: 'flex', justifyContent: 'center', gap: 16, fontSize: 11 }}>
           <Link href="/" style={{ color: C.muted }}>Home</Link>
-          <Link href="/twin" style={{ color: C.muted }}>Twin</Link>
+          <Link href="/v2/twin" style={{ color: C.muted }}>Twin</Link>
           <Link href="/sensors" style={{ color: C.muted }}>Sensors</Link>
           <Link href="/ops" style={{ color: C.muted }}>Ops</Link>
         </div>
