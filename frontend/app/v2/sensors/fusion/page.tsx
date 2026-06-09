@@ -31,6 +31,12 @@ function tipoLabel(t:string){return ({lilygo:'LilyGo',camera:'Câmara',ir:'Infra
 function statusColor(s:string){return s==='online'?'#4A7C59':s==='degraded'?'#C25A1A':s==='offline'?'#8A938B':s==='planned'?'#C9CEC4':'#C9CEC4';}
 function statusLabel(s:string){return ({online:'Online',degraded:'Instável',offline:'Offline',maintenance:'Manutenção',planned:'Planeado','sem-dados':'Sem dados'} as any)[s]||s;}
 function srcLabel(s:string){return ({camera:'Câmara',ir:'Infraverm.',wifi:'WiFi'} as any)[s]||s;}
+function secLabel(s:string){return ({m:'Masculino',f:'Feminino',u:'Unissexo'} as any)[s]||s;}
+function idadeLabel(s:number|null){
+  if(s==null)return 'sem âncora';
+  if(s<90)return `há ${Math.round(s)}s`;
+  return `há ${Math.round(s/60)}min`;
+}
 
 type Sensor={id:string;tipo:string;cluster:string|null;status:string;modelo?:string;real?:boolean;link?:string;role?:string;origem?:string;battery?:{pct:number;fonte:string};};
 
@@ -259,32 +265,71 @@ export default function SensorConsole(){
             {(()=>{
               const f=fusions[selFusion];
               if(!f)return <p className="sx-soft">A carregar…</p>;
-              if(f.estado!=='ok')return (
-                <div className="sx-fusao-empty">
-                  <p>Sem dados para {selFusion.toUpperCase()}.</p>
-                  <p className="sx-soft">Fontes: {(f.fontes_disponiveis||[]).join(', ')} · {mode==='real'?'aguarda sensores reais':'—'}</p>
-                </div>
-              );
+              const seccoes=Object.entries(f.seccoes||{}) as [string,any][];
               return (
-                <div className="sx-fusao-grid">
-                  <div className="sx-fcard">
-                    <div className="sx-fbig">{f.pessoas}<span> pessoas</span></div>
-                    <div className="sx-fobar"><div className="sx-fofill" style={{width:`${Math.min(100,f.ocupacao_pct)}%`,background:f.ocupacao_pct>=90?'#C25A1A':f.ocupacao_pct>=70?'#D98A4A':'#4A7C59'}}/></div>
-                    <div className="sx-soft">{f.ocupacao_pct}% de {f.capacidade_dentro} · fila {f.fila_atual} · espera {f.tempo_espera_min}min</div>
-                    <div className={`sx-prov ${f.data_source}`}>{f.data_source==='simulado'?'simulado':f.data_source==='real'?'real':f.data_source==='stale'?'desatualizado':'sem dados'}</div>
-                  </div>
-                  <div className="sx-fcard">
-                    <div className="sx-fs-t">Fontes & pesos · confiança {Math.round((f.confianca||0)*100)}%</div>
-                    {Object.entries(f.pesos||{}).map(([src,w]:any)=>(
-                      <div key={src} className="sx-fs-row">
-                        <div className="sx-fs-l">{srcLabel(src)}</div>
-                        <div className="sx-fs-track"><div className="sx-fs-bar" style={{width:`${w*100}%`}}/></div>
-                        <div className="sx-fs-v"><b>{Math.round(w*100)}%</b> · {f.estimativas_por_fonte?.[src]??'—'}</div>
+                <>
+                  {f.estado!=='ok' ? (
+                    <div className="sx-fusao-empty">
+                      <p>Sem dados para {selFusion.toUpperCase()}.</p>
+                      <p className="sx-soft">Fontes: {(f.fontes_disponiveis||[]).join(', ')} · {mode==='real'?'aguarda sensores reais':'—'}</p>
+                    </div>
+                  ) : (
+                    <div className="sx-fusao-grid">
+                      <div className="sx-fcard">
+                        <div className="sx-fbig">{f.pessoas}<span> pessoas</span></div>
+                        <div className="sx-fobar"><div className="sx-fofill" style={{width:`${Math.min(100,f.ocupacao_pct)}%`,background:f.ocupacao_pct>=90?'#C25A1A':f.ocupacao_pct>=70?'#D98A4A':'#4A7C59'}}/></div>
+                        <div className="sx-soft">{f.ocupacao_pct}% de {f.capacidade_dentro} · fila {f.fila_atual} · espera {f.tempo_espera_min}min</div>
+                        <div className={`sx-prov ${f.data_source}`}>{f.data_source==='simulado'?'simulado':f.data_source==='real'?'real':f.data_source==='stale'?'desatualizado':'sem dados'}</div>
                       </div>
-                    ))}
-                    <p className="sx-soft" style={{marginTop:10,fontSize:12}}>Pesos adaptam-se quando uma fonte cai. Confiança sobe com concordância.</p>
+                      <div className="sx-fcard">
+                        <div className="sx-fs-t">Fontes & pesos · confiança {Math.round((f.confianca||0)*100)}%</div>
+                        {Object.entries(f.pesos||{}).map(([src,w]:any)=>(
+                          <div key={src} className="sx-fs-row">
+                            <div className="sx-fs-l">{srcLabel(src)}</div>
+                            <div className="sx-fs-track"><div className="sx-fs-bar" style={{width:`${w*100}%`}}/></div>
+                            <div className="sx-fs-v"><b>{Math.round(w*100)}%</b> · {f.estimativas_por_fonte?.[src]??'—'}</div>
+                          </div>
+                        ))}
+                        <p className="sx-soft" style={{marginTop:10,fontSize:12}}>Pesos adaptam-se quando uma fonte cai. Confiança sobe com concordância.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* FUSÃO ROLANTE — cabeças + WiFi por bandas, por secção */}
+                  <div className="sx-fs-t" style={{margin:'18px 0 10px'}}>
+                    Fusão rolante · contagem de cabeças + WiFi por bandas
                   </div>
-                </div>
+                  {seccoes.length===0 ? (
+                    <div className="sx-fcard">
+                      <p className="sx-soft" style={{margin:0,fontSize:13}}>
+                        Ainda sem ingestão para {selFusion.toUpperCase()} — aguarda contagens de
+                        cabeças e POSTs WiFi dos nós ({GEO[selFusion]?.uni?'2 nós · secção única':'3 nós por secção M/F'}).
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="sx-rol-grid">
+                      {seccoes.map(([sec,r])=>(
+                        <div key={sec} className="sx-fcard">
+                          <div className="sx-rol-head">
+                            <b>{secLabel(sec)}</b>
+                            {r.flag_anomalia
+                              ? <span className="sx-rol-flag warn">anomalia travada</span>
+                              : <span className="sx-rol-flag ok">{r.fonte_wifi==='online'?'wifi online':'wifi offline'}</span>}
+                          </div>
+                          <div className="sx-fbig" style={{fontSize:34}}>{Math.round(r.ocupacao)}<span> dentro · cap {r.capacidade}</span></div>
+                          <div className="sx-fobar"><div className="sx-fofill" style={{width:`${Math.min(100,(r.ocupacao/Math.max(r.capacidade,1))*100)}%`,background:(r.ocupacao/Math.max(r.capacidade,1))>=.9?'#C25A1A':(r.ocupacao/Math.max(r.capacidade,1))>=.7?'#D98A4A':'#4A7C59'}}/></div>
+                          <div className="sx-rol-rows">
+                            <div><span>Fila estimada</span><b>{Math.round(r.fila_estimada)}</b></div>
+                            <div><span>Confiança cruzada</span><b>{Math.round((r.confianca_cruzada||0)*100)}%</b></div>
+                            <div><span>Coeficiente a</span><b>{r.a_actual}</b></div>
+                            <div><span>Âncora (cabeças)</span><b>{idadeLabel(r.idade_ancora_s)}</b></div>
+                            <div><span>Nós WiFi</span><b>{r.nos_online}/{r.nos_totais} online</b></div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
               );
             })()}
           </div>
@@ -440,6 +485,17 @@ export default function SensorConsole(){
         .sx-fs-v{width:90px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums;}
         .sx-fs-v b{color:#1B3A21;}
         .sx-fusao-empty{padding:30px 0;text-align:center;}
+        .sx-rol-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;}
+        .sx-rol-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+        .sx-rol-head b{font-size:14px;color:#1B3A21;}
+        .sx-rol-flag{font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:6px;}
+        .sx-rol-flag.ok{background:#E8F1EA;color:#1B3A21;}
+        .sx-rol-flag.warn{background:#F5E6D8;color:#C25A1A;}
+        .sx-rol-rows{margin-top:10px;}
+        .sx-rol-rows div{display:flex;justify-content:space-between;font-size:12.5px;padding:4px 0;border-bottom:1px solid #F0F2EC;}
+        .sx-rol-rows div:last-child{border-bottom:none;}
+        .sx-rol-rows span{color:#8A938B;}
+        .sx-rol-rows b{font-variant-numeric:tabular-nums;color:#0D1A0F;}
 
         .sx-terminal{display:flex;flex-direction:column;min-height:0;flex:1;}
         .sx-term-out{flex:1;min-height:0;overflow-y:auto;background:#0D1A0F;border-radius:12px 12px 0 0;padding:14px;font-family:monospace;font-size:13px;color:#BFE0E8;}
