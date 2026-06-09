@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import StewardPanel from './StewardPanel';
 
 /* ══════════════════════════════════════════════════════════════════════════
    /v2/flow — Calibração e verificação de fluxos · PlantaOS · RiR Lisboa 2026
@@ -557,6 +558,9 @@ export default function FlowPage() {
           {/* Routing block moved to top of panel */}
         </div>
       </div>
+
+      {/* Vista steward (onda 7f) — renderiza decisões do backend */}
+      <StewardPanel />
 
       {/* Toast */}
       {toast && <div className="fl-toast">{toast}</div>}
