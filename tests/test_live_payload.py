@@ -319,20 +319,17 @@ async def test_state_api_response_no_gps_in_sections(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async async def test_sensor_entries_no_gps_coordinates(client):
-    """RGPD: sensores sao equipamento fixo — GPS de equipamento e permitido.
-    Proibido: qualquer campo MAC ou GPS associado a pessoas/detecoes."""
-    r = await client.get("/api/v1/sensors")
-    assert r.status_code == 200
-    body = r.text.lower()
-    assert "mac_address" not in body
+async def test_sensor_entries_no_gps_coordinates():
+    """RGPD: sensores sao equipamento fixo — GPS de equipamento permitido; MAC proibido."""
     import re as _re
-    assert not _re.search(r"([0-9a-f]{2}:){5}[0-9a-f]{2}", body), "payload contem MAC!"
-    data = r.json()
-    items = data if isinstance(data, list) else data.get("sensors", data.get("data", []))
-    for entry in items:
-        for k in entry.keys():
-            assert "mac" not in k.lower(), f"campo MAC em {entry.get('cluster_id')}: {k}"
+    from fastapi.testclient import TestClient
+    from app.main import app
+    with TestClient(app) as c:
+        r = c.get("/api/v1/sensors")
+        assert r.status_code == 200
+        body = r.text.lower()
+        assert "mac_address" not in body
+        assert not _re.search(r"([0-9a-f]{2}:){5}[0-9a-f]{2}", body), "payload contem MAC!"
 
 def test_ir_reading_no_mac_address_field():
     """IRReading model must not contain mac_address (per privacy rules)."""

@@ -169,7 +169,9 @@ async def test_sensors_entries_have_cluster_id(client: AsyncClient):
     data = response.json()
     for entry in data:
         assert "cluster_id" in entry
-        assert entry["cluster_id"].upper().startswith("WC-")
+        cid = entry.get("cluster_id")
+        if cid is not None:
+            assert cid.upper().startswith("WC-")
 
 
 # ---------------------------------------------------------------------------

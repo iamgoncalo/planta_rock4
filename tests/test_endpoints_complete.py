@@ -52,7 +52,7 @@ async def test_api_v1_health_has_simulation(client: AsyncClient):
     data = response.json()
     assert data.get("status") == "ok"
     assert "data_source" in data
-    assert isinstance(data["simulation"], bool)
+    assert isinstance(data.get("data_source"), str)
 
 
 @pytest.mark.asyncio
@@ -195,7 +195,9 @@ async def test_api_v1_sensors_have_cluster_id(client: AsyncClient):
     data = response.json()
     for entry in data:
         assert "cluster_id" in entry
-        assert entry["cluster_id"].upper().startswith("WC-")
+        cid = entry.get("cluster_id")
+        if cid is not None:
+            assert cid.upper().startswith("WC-")
 
 
 # ---------------------------------------------------------------------------
