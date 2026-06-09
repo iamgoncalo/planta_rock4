@@ -146,6 +146,15 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.warning(f"fusao_rolante snapshot startup warning: {e}")
 
+        # Orquestrador de demonstração da fusão rolante (só em fleet mode=sim;
+        # cala-se perante dados reais; origem=simulado sempre visível)
+        try:
+            from app.services.fusao_rolante_demo import demo_loop
+            asyncio.create_task(demo_loop())
+            logger.info("fusao_rolante_demo: orquestrador agendado")
+        except Exception as e:
+            logger.warning(f"fusao_rolante_demo startup warning: {e}")
+
     # CORS — allow frontend dev servers and the API itself
     app.add_middleware(
         CORSMiddleware,

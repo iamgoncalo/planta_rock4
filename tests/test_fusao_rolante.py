@@ -375,6 +375,99 @@ class TestAPIFusaoRolante:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Memória + orquestrador de demonstração
+# ─────────────────────────────────────────────────────────────────────────────
+class TestMemoriaEOrquestrador:
+    def test_historia_grava_e_limita(self):
+        """Cada ingestão grava um ponto; a memória é limitada a HISTORIA_MAX."""
+        for i in range(900):
+            fr.ingest_wifi_bandas("wc-01", "m", "porta", 10 + i % 5, 0,
+                                  ts_ms=T0_MS + i * 60_000)
+        est = fr.get_estimador("wc-01_m")
+        assert len(est.historia) == fr.HISTORIA_MAX
+        pts = est.history(50)
+        assert len(pts) == 50
+        assert all(math.isfinite(p["conf"]) for p in pts)
+
+    def test_payload_inclui_meta_da_regressao(self):
+        fr.ingest_wifi_bandas("wc-01", "m", "porta", 10, 2, ts_ms=T0_MS)
+        p = fr.get_section_payload("wc-01_m", now_s=T0)
+        for campo in ("r2", "b_actual", "pares_na_janela", "n_acessos",
+                      "origem", "pontos_memoria", "surto_activo"):
+            assert campo in p, f"falta {campo}"
+
+    def test_demo_tick_alimenta_todas_as_seccoes(self):
+        """Um tick do orquestrador alimenta as 14 secções com origem=simulado."""
+        from app.services import fusao_rolante_demo as demo
+        n = demo.demo_tick(T0)
+        assert n == 14    # 6 MF × 2 + 2 UNI
+        todos = fr.get_all(now_s=T0)
+        assert len(todos) == 14
+        for sid, p in todos.items():
+            assert p["origem"] == "simulado", sid
+            assert 0.0 <= p["ocupacao"] <= p["capacidade"], sid
+            assert math.isfinite(p["confianca_cruzada"]), sid
+
+    def test_demo_regressao_converge_para_a_verdade(self):
+        """Com ticks suficientes (WiFi variável + cabeças), a aprende a_true."""
+        from app.services import fusao_rolante_demo as demo
+        for i in range(120):
+            demo.demo_tick(T0 + i * demo.TICK_S)
+        est = fr.get_estimador("wc-06")
+        if est.regressao.fitted:    # var suficiente → fit aconteceu
+            a_true = demo._a_true("wc-06")
+            # a_eff esperado ≈ a_true / k_real_mediano do cluster (k_cal=1.0)
+            assert fr.A_MIN <= est.regressao.a <= fr.A_MAX
+            assert est.regressao.r2 > 0.5
+            assert abs(est.regressao.a - a_true) / a_true < 0.6
+
+    def test_demo_nao_toca_em_seccao_com_dados_reais(self):
+        """Secção com ingestão REAL recente é intocável pelo orquestrador."""
+        from app.services import fusao_rolante_demo as demo
+        fr.ingest_cabecas("wc-01", "m", 33, fonte="prosegur",
+                          ts_ms=T0_MS, origem="real")
+        demo.demo_tick(T0 + 10.0)
+        p = fr.get_section_payload("wc-01_m", now_s=T0 + 10.0)
+        assert p["origem"] == "real"
+        # 33 menos o decaimento de 10s sem nós WiFi (sem contaminação simulada)
+        assert p["ocupacao"] == pytest.approx(33.0, abs=0.5)
+
+    @pytest.mark.asyncio
+    async def test_endpoint_rolante_all_e_section(self, client):
+        from app.services import fusao_rolante_demo as demo
+        demo.demo_tick(T0)
+        # rota literal não é engolida por /fusion/{cluster_id}
+        r = await client.get("/api/v1/fusion/rolante")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] == 14
+        assert data["janela_pares"] == 36
+
+        r = await client.get("/api/v1/fusion/rolante/wc-05?n=10")
+        assert r.status_code == 200
+        d = r.json()
+        assert d["secao"] == "u"
+        assert isinstance(d["historia"], list) and len(d["historia"]) >= 1
+        assert isinstance(d["pares_regressao"], list)
+
+        r = await client.get("/api/v1/fusion/rolante/wc-99")
+        assert r.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_calibration_inclui_estado_vivo(self, client):
+        from app.services import fusao_rolante_demo as demo
+        demo.demo_tick(T0)
+        r = await client.get("/api/v1/calibration")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["total"] == 40
+        assert all("live" in n for n in data["nodes"])
+        # nós alimentados pelo orquestrador têm contagens registadas
+        com_dados = [n for n in data["nodes"] if n["live"]["macs_A"] is not None]
+        assert len(com_dados) == 40
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Snapshot — serialização round-trip
 # ─────────────────────────────────────────────────────────────────────────────
 class TestSnapshot:

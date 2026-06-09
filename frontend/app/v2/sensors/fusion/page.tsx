@@ -21,7 +21,7 @@ const GEO: Record<string,{e:number;n:number;uni:boolean}> = {
 };
 const SPAN_E=298.5, SPAN_N=327.3, PAD=30;
 
-const TABS = [['sensores','Sensores'],['rede','Rede'],['fusao','Fusão'],['terminal','Terminal']];
+const TABS = [['sensores','Sensores'],['rede','Rede'],['fusao','Fusão'],['calibracao','Calibração'],['terminal','Terminal']];
 const CMDS: [string,string][] = [
   ['ping','Ping'],['diagnostics','Diagnóstico'],['restart','Reiniciar'],
   ['reset_counters','Reset'],['calibrate','Calibrar'],['identify','Identificar'],['ota','OTA'],
@@ -32,10 +32,53 @@ function statusColor(s:string){return s==='online'?'#4A7C59':s==='degraded'?'#C2
 function statusLabel(s:string){return ({online:'Online',degraded:'Instável',offline:'Offline',maintenance:'Manutenção',planned:'Planeado','sem-dados':'Sem dados'} as any)[s]||s;}
 function srcLabel(s:string){return ({camera:'Câmara',ir:'Infraverm.',wifi:'WiFi'} as any)[s]||s;}
 function secLabel(s:string){return ({m:'Masculino',f:'Feminino',u:'Unissexo'} as any)[s]||s;}
+function posLabel(p:string){return ({porta:'Porta',meio:'Meio',fundo:'Fundo'} as any)[p]||p;}
 function idadeLabel(s:number|null){
   if(s==null)return 'sem âncora';
   if(s<90)return `há ${Math.round(s)}s`;
   return `há ${Math.round(s/60)}min`;
+}
+
+/* ── Memória: sparkline da ocupação (âncoras a cheio, anomalias a laranja) ── */
+function Spark({pts,cap}:{pts:any[];cap:number}){
+  if(!pts||pts.length<2)return <div className="sx-spark-empty">a acumular memória…</div>;
+  const W=280,H=56,P=4;
+  const t0=pts[0].ts,t1=pts[pts.length-1].ts||t0+1;
+  const x=(t:number)=>P+(W-2*P)*((t-t0)/Math.max(t1-t0,1));
+  const y=(o:number)=>H-P-(H-2*P)*Math.min(1,o/Math.max(cap,1));
+  const line=pts.map((p,i)=>`${i?'L':'M'}${x(p.ts).toFixed(1)},${y(p.ocupacao).toFixed(1)}`).join(' ');
+  const area=`${line} L${x(t1).toFixed(1)},${H-P} L${x(t0).toFixed(1)},${H-P} Z`;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="sx-spark" preserveAspectRatio="none">
+      <path d={area} fill="#EDF4EF"/>
+      <path d={line} fill="none" stroke="#2E7D4F" strokeWidth="1.6"/>
+      {pts.filter(p=>p.ancora).map((p,i)=>(
+        <circle key={'a'+i} cx={x(p.ts)} cy={y(p.ocupacao)} r="2.6" fill="#1B3A21"/>
+      ))}
+      {pts.filter(p=>p.anomalia).map((p,i)=>(
+        <circle key={'n'+i} cx={x(p.ts)} cy={y(p.ocupacao)} r="2.6" fill="none" stroke="#C25A1A" strokeWidth="1.6"/>
+      ))}
+    </svg>
+  );
+}
+
+/* ── Regressão: scatter (w,c) + recta c = a·w + b aprendida ── */
+function Scatter({pares,a,b}:{pares:number[][];a:number;b:number}){
+  if(!pares||pares.length<2)return <div className="sx-spark-empty">a aprender — precisa de mais contagens de cabeças</div>;
+  const W=280,H=92,P=8;
+  const ws=pares.map(p=>p[0]),cs=pares.map(p=>p[1]);
+  const wmin=Math.min(...ws),wmax=Math.max(...ws,wmin+1);
+  const cmin=Math.min(...cs,a*wmin+b),cmax=Math.max(...cs,a*wmax+b,cmin+1);
+  const x=(w:number)=>P+(W-2*P)*((w-wmin)/(wmax-wmin));
+  const y=(c:number)=>H-P-(H-2*P)*((c-cmin)/(cmax-cmin));
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="sx-spark" preserveAspectRatio="none">
+      <line x1={x(wmin)} y1={y(a*wmin+b)} x2={x(wmax)} y2={y(a*wmax+b)} stroke="#1B3A21" strokeWidth="1.6" strokeDasharray="5 3"/>
+      {pares.map((p,i)=>(
+        <circle key={i} cx={x(p[0])} cy={y(p[1])} r="2.4" fill="#2E7D4F" opacity={0.35+0.65*(i/pares.length)}/>
+      ))}
+    </svg>
+  );
 }
 
 type Sensor={id:string;tipo:string;cluster:string|null;status:string;modelo?:string;real?:boolean;link?:string;role?:string;origem?:string;battery?:{pct:number;fonte:string};};
@@ -52,6 +95,14 @@ export default function SensorConsole(){
   const [cmdResults,setCmdResults]=useState<any[]>([]);
   const [busy,setBusy]=useState<string|null>(null);
   const [selFusion,setSelFusion]=useState('wc-06');
+  // fusão rolante — memória por secção do cluster seleccionado
+  const [rolDetail,setRolDetail]=useState<Record<string,any>>({});
+  // calibração — tabela + edição
+  const [calib,setCalib]=useState<any>(null);
+  const [kDraft,setKDraft]=useState<Record<string,string>>({});
+  const [savingNode,setSavingNode]=useState<string|null>(null);
+  const [savedNode,setSavedNode]=useState<string|null>(null);
+  const [calibCluster,setCalibCluster]=useState('wc-01');
   // terminal
   const [termLines,setTermLines]=useState<string[]>(['PlantaOS Device Terminal','Escreve help para ver comandos.','']);
   const [termInput,setTermInput]=useState('');
@@ -91,6 +142,58 @@ export default function SensorConsole(){
     setDetail(null);setCmdResults([]);
     api.sensorDetail(selSensor.id).then(setDetail).catch(()=>{});
   },[selSensor]);
+
+  // memória da fusão rolante do cluster seleccionado (tab Fusão)
+  useEffect(()=>{
+    if(tab!=='fusao')return;
+    let cancel=false;
+    const uni=GEO[selFusion]?.uni;
+    const sids=uni?[selFusion]:[`${selFusion}_m`,`${selFusion}_f`];
+    const load=async()=>{
+      const rs=await Promise.all(sids.map(s=>api.rolanteSection(s,240).catch(()=>null)));
+      if(cancel)return;
+      const d:Record<string,any>={};
+      sids.forEach((s,i)=>{if(rs[i])d[rs[i].secao]=rs[i];});
+      setRolDetail(d);
+    };
+    load();const iv=setInterval(load,REFRESH_MS);
+    return()=>{cancel=true;clearInterval(iv);};
+  },[tab,selFusion]);
+
+  // tabela de calibração (tab Calibração)
+  useEffect(()=>{
+    if(tab!=='calibracao')return;
+    let cancel=false;
+    const load=async()=>{
+      try{const c=await api.calibration();if(!cancel)setCalib(c);}catch{}
+    };
+    load();const iv=setInterval(load,REFRESH_MS);
+    return()=>{cancel=true;clearInterval(iv);};
+  },[tab]);
+
+  const saveK=async(nodeId:string)=>{
+    const raw=kDraft[nodeId];
+    const k=parseFloat((raw||'').replace(',','.'));
+    if(!isFinite(k)||k<=0)return;
+    setSavingNode(nodeId);
+    try{
+      await api.calibrationUpdate(nodeId,{k:Math.round(k*100)/100});
+      setSavedNode(nodeId);setTimeout(()=>setSavedNode(s=>s===nodeId?null:s),2000);
+      const c=await api.calibration();setCalib(c);
+      setKDraft(d=>{const n={...d};delete n[nodeId];return n;});
+    }catch{}
+    setSavingNode(null);
+  };
+  const nudgeK=async(nodeId:string,cur:number,delta:number)=>{
+    const k=Math.max(0.1,Math.round((cur+delta)*100)/100);
+    setSavingNode(nodeId);
+    try{
+      await api.calibrationUpdate(nodeId,{k});
+      setSavedNode(nodeId);setTimeout(()=>setSavedNode(s=>s===nodeId?null:s),2000);
+      const c=await api.calibration();setCalib(c);
+    }catch{}
+    setSavingNode(null);
+  };
 
   const toggleMode=async()=>{
     const next=mode==='sim'?'real':'sim';
@@ -303,7 +406,7 @@ export default function SensorConsole(){
                     </div>
                   )}
 
-                  {/* FUSÃO ROLANTE — cabeças + WiFi por bandas, por secção */}
+                  {/* FUSÃO ROLANTE — cabeças + WiFi por bandas, com memória */}
                   <div className="sx-fs-t" style={{margin:'18px 0 10px'}}>
                     Fusão rolante · contagem de cabeças + WiFi por bandas
                   </div>
@@ -316,27 +419,106 @@ export default function SensorConsole(){
                     </div>
                   ) : (
                     <div className="sx-rol-grid">
-                      {seccoes.map(([sec,r])=>(
+                      {seccoes.map(([sec,rBase])=>{
+                        const r=rolDetail[sec]||rBase;
+                        const fillPct=r.ocupacao/Math.max(r.capacidade,1);
+                        return (
                         <div key={sec} className="sx-fcard">
                           <div className="sx-rol-head">
                             <b>{secLabel(sec)}</b>
-                            {r.flag_anomalia
-                              ? <span className="sx-rol-flag warn">anomalia travada</span>
-                              : <span className="sx-rol-flag ok">{r.fonte_wifi==='online'?'wifi online':'wifi offline'}</span>}
+                            <span className="sx-rol-badges">
+                              {r.surto_activo&&<span className="sx-rol-flag surto">surto pós-show ×3.8</span>}
+                              {r.flag_anomalia&&<span className="sx-rol-flag warn">anomalia travada</span>}
+                              <span className={`sx-rol-flag ${r.origem==='simulado'?'sim':'ok'}`}>{r.origem==='simulado'?'simulado':'real'}</span>
+                            </span>
                           </div>
-                          <div className="sx-fbig" style={{fontSize:34}}>{Math.round(r.ocupacao)}<span> dentro · cap {r.capacidade}</span></div>
-                          <div className="sx-fobar"><div className="sx-fofill" style={{width:`${Math.min(100,(r.ocupacao/Math.max(r.capacidade,1))*100)}%`,background:(r.ocupacao/Math.max(r.capacidade,1))>=.9?'#C25A1A':(r.ocupacao/Math.max(r.capacidade,1))>=.7?'#D98A4A':'#4A7C59'}}/></div>
+                          <div className="sx-fbig" style={{fontSize:34}}>{Math.round(r.ocupacao)}<span> dentro · cap {r.capacidade} · fila {Math.round(r.fila_estimada)}</span></div>
+                          <div className="sx-fobar"><div className="sx-fofill" style={{width:`${Math.min(100,fillPct*100)}%`,background:fillPct>=.9?'#C25A1A':fillPct>=.7?'#D98A4A':'#4A7C59'}}/></div>
+
+                          <div className="sx-rol-sub">Memória · {r.pontos_memoria??(r.historia?.length||0)} pontos
+                            {r.historia?.some((p:any)=>p.anomalia)&&<i> · ◦ anomalias travadas</i>}
+                            {r.historia?.some((p:any)=>p.ancora)&&<i> · ● âncoras</i>}
+                          </div>
+                          <Spark pts={r.historia||[]} cap={r.capacidade}/>
+
+                          <div className="sx-rol-sub">Regressão rolante · c = {r.a_actual}·w {(r.b_actual??0)>=0?'+':'−'} {Math.abs(r.b_actual??0).toFixed(1)} · R² {(r.r2??0).toFixed(2)} · {r.pares_na_janela??0}/36 pares</div>
+                          <Scatter pares={r.pares_regressao||[]} a={r.a_actual} b={r.b_actual??0}/>
+
                           <div className="sx-rol-rows">
-                            <div><span>Fila estimada</span><b>{Math.round(r.fila_estimada)}</b></div>
                             <div><span>Confiança cruzada</span><b>{Math.round((r.confianca_cruzada||0)*100)}%</b></div>
-                            <div><span>Coeficiente a</span><b>{r.a_actual}</b></div>
-                            <div><span>Âncora (cabeças)</span><b>{idadeLabel(r.idade_ancora_s)}</b></div>
+                            <div><span>Âncora ({r.fonte_ancora||'—'})</span><b>{idadeLabel(r.idade_ancora_s)}</b></div>
                             <div><span>Nós WiFi</span><b>{r.nos_online}/{r.nos_totais} online</b></div>
+                            <div><span>Trava física</span><b>{r.n_acessos??1} acesso{(r.n_acessos??1)>1?'s':''} × 40/min</b></div>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
+                </>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* CALIBRAÇÃO */}
+        {tab==='calibracao' && (
+          <div className="sx-fusao">
+            <div className="sx-filters">
+              {CLUSTERS.map(c=><button key={c} className={`sx-chip ${calibCluster===c?'on':''}`} onClick={()=>setCalibCluster(c)}>{c.toUpperCase()}</button>)}
+              {calib&&<span className="sx-count">{calib.online}/{calib.total} nós online</span>}
+            </div>
+            {!calib?<p className="sx-soft">A carregar calibração…</p>:(()=>{
+              const nodes=(calib.nodes||[]).filter((n:any)=>n.cluster_id===calibCluster);
+              const grupos:[string,any[]][]=[];
+              for(const sec of ['m','f','u']){
+                const g=nodes.filter((n:any)=>n.secao===sec);
+                if(g.length)grupos.push([sec,g]);
+              }
+              return (
+                <>
+                  <p className="sx-soft" style={{fontSize:12.5,margin:'0 0 12px'}}>
+                    O factor <b>k</b> normaliza a contagem de cada nó: a secção agrega por
+                    <b> mediana(nó ÷ k)</b>. Sobe o k de um nó que conta a mais; desce se conta a menos.
+                    A alteração entra no próximo ciclo (~20s) e fica persistida.
+                  </p>
+                  {grupos.map(([sec,g])=>(
+                    <div key={sec} className="sx-cal-sec">
+                      <div className="sx-fs-t">{secLabel(sec)} · {g.length} nós</div>
+                      <div className="sx-cal-grid">
+                        {g.map((n:any)=>{
+                          const pos=n.node_id.split('_').pop();
+                          const draft=kDraft[n.node_id];
+                          const live=n.live||{};
+                          return (
+                            <div key={n.node_id} className={`sx-cal-card ${live.online?'on':''}`}>
+                              <div className="sx-cal-head">
+                                <span className="sx-dot" style={{background:live.online?'#4A7C59':'#C9CEC4'}}/>
+                                <b>{posLabel(pos)}</b>
+                                <span className="sx-cal-id">{n.node_id}</span>
+                              </div>
+                              <div className="sx-cal-live">
+                                {live.online
+                                  ? <>zona A <b>{live.macs_A}</b> · zona B <b>{live.macs_B}</b> · há {Math.round(live.idade_s||0)}s</>
+                                  : 'sem POSTs — offline'}
+                              </div>
+                              <div className="sx-cal-krow">
+                                <span>k</span>
+                                <button onClick={()=>nudgeK(n.node_id,n.k,-0.05)} disabled={savingNode===n.node_id}>−</button>
+                                <input value={draft??String(n.k)} onChange={e=>setKDraft(d=>({...d,[n.node_id]:e.target.value}))}
+                                  onKeyDown={e=>{if(e.key==='Enter')saveK(n.node_id);}}
+                                  onBlur={()=>{if(draft!=null&&draft!==String(n.k))saveK(n.node_id);}}/>
+                                <button onClick={()=>nudgeK(n.node_id,n.k,+0.05)} disabled={savingNode===n.node_id}>+</button>
+                                {savingNode===n.node_id&&<em>a gravar…</em>}
+                                {savedNode===n.node_id&&<em className="okk">✓ gravado</em>}
+                              </div>
+                              <div className="sx-cal-meta">limiar zona A {n.threshold_dbm} dBm · RSSI@1m {n.rssi_1m} dBm</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </>
               );
             })()}
@@ -504,6 +686,31 @@ export default function SensorConsole(){
         .sx-rol-rows div:last-child{border-bottom:none;}
         .sx-rol-rows span{color:#8A938B;}
         .sx-rol-rows b{font-variant-numeric:tabular-nums;color:#0D1A0F;}
+        .sx-rol-badges{display:flex;gap:6px;align-items:center;}
+        .sx-rol-flag.sim{background:#E8F1EA;color:#1B3A21;}
+        .sx-rol-flag.surto{background:#1B3A21;color:#fff;}
+        .sx-rol-sub{font-size:11px;color:#8A938B;margin:12px 0 4px;font-variant-numeric:tabular-nums;}
+        .sx-rol-sub i{font-style:normal;color:#B7B9B0;}
+        .sx-spark{width:100%;height:56px;display:block;border-radius:6px;}
+        .sx-spark-empty{height:56px;display:flex;align-items:center;justify-content:center;font-size:12px;color:#B7B9B0;background:#FAFAF8;border-radius:6px;}
+
+        .sx-cal-sec{margin-bottom:18px;}
+        .sx-cal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;}
+        .sx-cal-card{background:#fff;border:1px solid #E5E8E0;border-radius:12px;padding:12px;}
+        .sx-cal-card.on{background:linear-gradient(180deg,#FAFCF9 0%,#FFFFFF 100%);}
+        .sx-cal-head{display:flex;align-items:center;gap:7px;}
+        .sx-cal-head b{font-size:13.5px;}
+        .sx-cal-id{margin-left:auto;font-family:monospace;font-size:10px;color:#B7B9B0;}
+        .sx-cal-live{font-size:11.5px;color:#8A938B;margin:6px 0 10px;font-variant-numeric:tabular-nums;}
+        .sx-cal-live b{color:#1B3A21;}
+        .sx-cal-krow{display:flex;align-items:center;gap:6px;}
+        .sx-cal-krow span{font-size:12px;color:#8A938B;font-weight:600;}
+        .sx-cal-krow button{width:26px;height:26px;border:1px solid #E5E8E0;background:#fff;border-radius:7px;cursor:pointer;font-size:15px;line-height:1;color:#1B3A21;font-family:inherit;}
+        .sx-cal-krow button:hover{border-color:#4A7C59;}
+        .sx-cal-krow input{width:62px;border:1px solid #E5E8E0;border-radius:7px;padding:5px 8px;font-family:inherit;font-size:13px;text-align:center;font-variant-numeric:tabular-nums;color:#0D1A0F;}
+        .sx-cal-krow em{font-style:normal;font-size:11px;color:#8A938B;}
+        .sx-cal-krow em.okk{color:#2E7D4F;font-weight:600;}
+        .sx-cal-meta{font-size:10.5px;color:#B7B9B0;margin-top:8px;font-variant-numeric:tabular-nums;}
 
         .sx-terminal{display:flex;flex-direction:column;min-height:0;flex:1;}
         .sx-term-out{flex:1;min-height:0;overflow-y:auto;background:#0D1A0F;border-radius:12px 12px 0 0;padding:14px;font-family:monospace;font-size:13px;color:#BFE0E8;}

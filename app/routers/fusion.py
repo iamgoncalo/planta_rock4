@@ -59,6 +59,36 @@ def _empty(cluster_id: str, mode: str, reason: str) -> dict:
     }
 
 
+# NOTA: rotas literais /fusion/rolante* declaradas ANTES de /fusion/{cluster_id}
+@router.get("/fusion/rolante")
+async def fusion_rolante_all():
+    """Fusão rolante completa: todas as secções com dados + meta global."""
+    if fusao_rolante is None:
+        return {"sections": {}, "total": 0, "razao": "fusao rolante indisponivel"}
+    try:
+        sections = fusao_rolante.get_all()
+        return {
+            "sections": sections,
+            "total": len(sections),
+            "janela_pares": fusao_rolante.JANELA_PARES,
+            "janela_horas": fusao_rolante.JANELA_HORAS_S / 3600.0,
+            "ts": time.time(),
+        }
+    except Exception as ex:
+        return {"sections": {}, "total": 0, "razao": str(ex)}
+
+
+@router.get("/fusion/rolante/{section_id}")
+async def fusion_rolante_section(section_id: str, n: int = Query(default=240, ge=1, le=720)):
+    """Memória de uma secção: estado + série temporal + pares da regressão."""
+    if fusao_rolante is None:
+        raise HTTPException(404, "fusao rolante indisponivel")
+    detail = fusao_rolante.get_section_detail(section_id, n_history=n)
+    if detail is None:
+        raise HTTPException(404, f"seccao desconhecida: {section_id}")
+    return detail
+
+
 @router.get("/fusion/{cluster_id}")
 async def fusion_cluster(cluster_id: str, mode: str = Query(default="sim")):
     cluster_id = cluster_id.lower()

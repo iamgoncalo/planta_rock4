@@ -57,6 +57,8 @@ SURTO_JANELA_S = 25 * 60.0        # 25 min após o fim de um show
 NO_TTL_S = 180.0                  # nó sem POST há 3 min sai do cálculo
 DECAY_TAU_S = 20 * 60.0           # tau do decaimento sem nós (20 min)
 PESO_C1, PESO_C2, PESO_C3 = 0.45, 0.35, 0.20
+HISTORIA_MAX = 720                # pontos de memória por secção (~12h a 1/min)
+HISTORIA_SNAPSHOT = 240           # pontos persistidos no snapshot Postgres
 
 # Posições canónicas dos nós WiFi (define nós_totais por secção)
 POSICOES_MF = ("porta", "meio", "fundo")   # 3 por secção M/F
@@ -227,6 +229,10 @@ class EstimadorSeccao:
     fila_estimada: float = 0.0
     flag_anomalia: bool = False
     tem_dados: bool = False
+    origem: str = "real"          # "simulado" quando alimentada pelo demo driver
+
+    # MEMÓRIA — série temporal da secção (ts, ocupacao, fila, conf, a, nos, anom)
+    historia: deque = field(default_factory=lambda: deque(maxlen=HISTORIA_MAX))
 
     def __post_init__(self) -> None:
         if self.regressao is None:
@@ -251,14 +257,18 @@ class EstimadorSeccao:
         return float(median(vals))
 
     # — ingestão —
-    def ingest_wifi(self, no: str, macs_a: int, macs_b: int, ts_s: float) -> None:
+    def ingest_wifi(self, no: str, macs_a: int, macs_b: int, ts_s: float,
+                    origem: str = "real") -> None:
         self.nos[no] = {"macs_A": max(0, int(macs_a)),
                         "macs_B": max(0, int(macs_b)),
                         "ts": float(ts_s)}
         self.tem_dados = True
+        self.origem = origem
         self._recompute(ts_s)
+        self._memorize(ts_s)
 
-    def ingest_cabecas(self, cabecas: float, fonte: str, ts_s: float) -> None:
+    def ingest_cabecas(self, cabecas: float, fonte: str, ts_s: float,
+                       origem: str = "real") -> None:
         cabecas = max(0.0, float(cabecas))
         w = self.wifi_zona(ts_s, "macs_A")
         if w is not None:
@@ -268,10 +278,26 @@ class EstimadorSeccao:
         self.wifi_na_ancora = w
         self.fonte_ancora = fonte
         self.tem_dados = True
+        self.origem = origem
         # âncora absoluta: re-baseia a estimativa (sem trava — é verdade no terreno)
         self.ocupacao = max(0.0, min(float(self.capacidade), cabecas))
         self.ts_estimativa = float(ts_s)
         self.flag_anomalia = False
+        self._memorize(ts_s, ancora=True)
+
+    # — memória —
+    def _memorize(self, ts_s: float, ancora: bool = False) -> None:
+        """Grava um ponto na série temporal da secção."""
+        self.historia.append({
+            "ts": round(float(ts_s), 1),
+            "ocupacao": round(self.ocupacao, 1) if self.ocupacao is not None else 0.0,
+            "fila": round(self.fila_estimada, 1),
+            "conf": self.confianca_cruzada(ts_s),
+            "a": round(self.regressao.a, 3),
+            "nos": len(self._nos_online(ts_s)),
+            "anomalia": bool(self.flag_anomalia),
+            "ancora": bool(ancora),
+        })
 
     # — estimativa —
     def _recompute(self, now_s: float) -> None:
@@ -357,13 +383,30 @@ class EstimadorSeccao:
             "fila_estimada": round(self.fila_estimada, 1),
             "confianca_cruzada": self.confianca_cruzada(now_s),
             "a_actual": round(self.regressao.a, 3),
+            "b_actual": round(self.regressao.b, 2),
+            "r2": round(self.regressao.r2, 3),
+            "pares_na_janela": len(self.regressao.pares),
             "idade_ancora_s": idade,
+            "fonte_ancora": self.fonte_ancora,
             "nos_online": nos_online,
             "nos_totais": len(self.posicoes),
+            "n_acessos": self.n_acessos,
             "flag_anomalia": bool(self.flag_anomalia),
             "capacidade": self.capacidade,
             "fonte_wifi": "online" if nos_online > 0 else "offline",
+            "origem": self.origem,
+            "surto_activo": _surge_factor(now_s) > 1.0,
+            "pontos_memoria": len(self.historia),
         }
+
+    def history(self, n: int = HISTORIA_MAX) -> list[dict]:
+        """Últimos n pontos da série temporal."""
+        n = max(1, min(int(n), HISTORIA_MAX))
+        return list(self.historia)[-n:]
+
+    def regression_pairs(self) -> list[list[float]]:
+        """Pares (w, c) da janela actual — para o scatter da regressão."""
+        return [[round(p[1], 1), round(p[2], 1)] for p in self.regressao.pares]
 
     # — snapshot —
     def to_dict(self) -> dict:
@@ -379,6 +422,8 @@ class EstimadorSeccao:
             "fila_estimada": self.fila_estimada,
             "flag_anomalia": self.flag_anomalia,
             "tem_dados": self.tem_dados,
+            "origem": self.origem,
+            "historia": list(self.historia)[-HISTORIA_SNAPSHOT:],
         }
 
     def restore(self, d: dict) -> None:
@@ -395,6 +440,11 @@ class EstimadorSeccao:
             self.fila_estimada = float(d.get("fila_estimada") or 0.0)
             self.flag_anomalia = bool(d.get("flag_anomalia", False))
             self.tem_dados = bool(d.get("tem_dados", False))
+            self.origem = str(d.get("origem") or "real")
+            self.historia = deque(
+                [dict(p) for p in (d.get("historia") or [])],
+                maxlen=HISTORIA_MAX,
+            )
         except Exception as exc:
             _logger.debug("fusao_rolante restore %s erro (ignorado): %s",
                           self.section_id, exc)
@@ -437,7 +487,8 @@ def get_estimador(section_id: str) -> Optional[EstimadorSeccao]:
 
 def ingest_wifi_bandas(cluster_id: str, secao: Optional[str], no: str,
                        macs_a: int, macs_b: int,
-                       ts_ms: Optional[int] = None) -> Optional[dict]:
+                       ts_ms: Optional[int] = None,
+                       origem: str = "real") -> Optional[dict]:
     """Regista um POST WiFi por bandas. Devolve payload da secção ou None."""
     sid = section_id_for(cluster_id, secao)
     if sid is None:
@@ -445,13 +496,14 @@ def ingest_wifi_bandas(cluster_id: str, secao: Optional[str], no: str,
     ts_s = (ts_ms / 1000.0) if ts_ms else time.time()
     with _LOCK:
         est = _ESTIMADORES[sid]
-        est.ingest_wifi(str(no), macs_a, macs_b, ts_s)
+        est.ingest_wifi(str(no), macs_a, macs_b, ts_s, origem=origem)
         return est.payload(ts_s)
 
 
 def ingest_cabecas(cluster_id: str, secao: Optional[str], cabecas: float,
                    fonte: str = "manual",
-                   ts_ms: Optional[int] = None) -> Optional[dict]:
+                   ts_ms: Optional[int] = None,
+                   origem: str = "real") -> Optional[dict]:
     """Regista uma contagem de cabeças (âncora). Devolve payload ou None."""
     sid = section_id_for(cluster_id, secao)
     if sid is None:
@@ -459,8 +511,42 @@ def ingest_cabecas(cluster_id: str, secao: Optional[str], cabecas: float,
     ts_s = (ts_ms / 1000.0) if ts_ms else time.time()
     with _LOCK:
         est = _ESTIMADORES[sid]
-        est.ingest_cabecas(cabecas, fonte, ts_s)
+        est.ingest_cabecas(cabecas, fonte, ts_s, origem=origem)
         return est.payload(ts_s)
+
+
+def get_section_detail(section_id: str, n_history: int = 240,
+                       now_s: Optional[float] = None) -> Optional[dict]:
+    """Payload + memória + pares da regressão de uma secção."""
+    est = get_estimador(section_id)
+    if est is None:
+        return None
+    with _LOCK:
+        return {
+            "section_id": est.section_id,
+            **est.payload(now_s),
+            "historia": est.history(n_history),
+            "pares_regressao": est.regression_pairs(),
+        }
+
+
+def node_live_state(now_s: Optional[float] = None) -> dict[str, dict]:
+    """Estado ao vivo de cada nó WiFi conhecido: online, últimas contagens."""
+    now_s = now_s if now_s is not None else time.time()
+    out: dict[str, dict] = {}
+    with _LOCK:
+        _build_all()
+        for est in _ESTIMADORES.values():
+            for nid, rec in est.nos.items():
+                age = max(0.0, now_s - rec["ts"])
+                out[str(nid)] = {
+                    "section_id": est.section_id,
+                    "online": age <= NO_TTL_S,
+                    "idade_s": round(age, 1),
+                    "macs_A": rec.get("macs_A", 0),
+                    "macs_B": rec.get("macs_B", 0),
+                }
+    return out
 
 
 def get_section_payload(section_id: str,

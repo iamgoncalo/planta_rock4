@@ -460,6 +460,18 @@ export const api = {
     }),
   fusion: (cluster: string, mode?: string) => getJson<any>(`/api/v1/fusion/${cluster}${mode ? '?mode=' + mode : ''}`),
 
+  // ── Fusão rolante (cabeças + WiFi por bandas) — memória + calibração ──
+  rolanteAll: () => getJson<any>('/api/v1/fusion/rolante'),
+  rolanteSection: (sectionId: string, n = 240) =>
+    getJson<any>(`/api/v1/fusion/rolante/${sectionId}?n=${n}`),
+  calibration: () => getJson<any>('/api/v1/calibration'),
+  calibrationUpdate: (nodeId: string, body: { k?: number; rssi_1m?: number; threshold_dbm?: number }) =>
+    getJson<any>(`/api/v1/calibration/${nodeId}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
   // ── Comandos de device (via MQTT, por cluster) ──
   devicePing: (cluster: string) =>
     getJson<any>(`/api/v1/devices/${cluster}/ping`, { method: 'POST' }),

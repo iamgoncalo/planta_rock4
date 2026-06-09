@@ -30,9 +30,20 @@ class CalibrationUpdate(BaseModel):
 
 @router.get("/calibration")
 async def get_calibration():
-    """Tabela de calibração completa (seed k=1.0 para todos os nós)."""
+    """Tabela de calibração + estado ao vivo de cada nó (online, contagens)."""
     nodes = node_calibration.get_all()
-    return {"total": len(nodes), "nodes": nodes}
+    try:
+        from app.services import fusao_rolante
+        live = fusao_rolante.node_live_state()
+    except Exception:
+        live = {}
+    for n in nodes:
+        lv = live.get(n["node_id"])
+        n["live"] = lv if lv is not None else {
+            "online": False, "idade_s": None, "macs_A": None, "macs_B": None,
+        }
+    online = sum(1 for n in nodes if n["live"].get("online"))
+    return {"total": len(nodes), "online": online, "nodes": nodes}
 
 
 @router.get("/calibration/{node_id}")
