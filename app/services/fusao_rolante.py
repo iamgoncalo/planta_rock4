@@ -259,6 +259,10 @@ class EstimadorSeccao:
     # — ingestão —
     def ingest_wifi(self, no: str, macs_a: int, macs_b: int, ts_s: float,
                     origem: str = "real") -> None:
+        # IDEMPOTENTE: o mesmo nó com o mesmo ts não conta duas vezes
+        existente = self.nos.get(no)
+        if existente is not None and existente.get("ts") == float(ts_s):
+            return
         self.nos[no] = {"macs_A": max(0, int(macs_a)),
                         "macs_B": max(0, int(macs_b)),
                         "ts": float(ts_s)}
@@ -332,10 +336,15 @@ class EstimadorSeccao:
         self.ts_estimativa = float(now_s)
         self.flag_anomalia = anomalia
 
-        # fila: a × mediana(macs_zona_B / k), com o mesmo clamp
+        # fila: a × mediana(macs_zona_B / k), clamp [0, queue_cap×1.5]
         zona_b = self.wifi_zona(now_s, "macs_B")
         fila = a * zona_b if zona_b is not None else 0.0
-        self.fila_estimada = max(0.0, min(float(self.capacidade), fila))
+        try:
+            from app.services import secoes_mf
+            fila_max = secoes_mf.queue_cap(self.section_id) * 1.5
+        except Exception:
+            fila_max = float(self.capacidade)
+        self.fila_estimada = max(0.0, min(fila_max, fila))
 
     def _decay(self, now_s: float) -> None:
         """0 nós online → fonte offline: decaimento exponencial (tau 20 min)."""

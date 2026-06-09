@@ -32,11 +32,12 @@ T0_MS = int(T0 * 1000)
 @pytest.fixture(autouse=True)
 def _estado_limpo():
     """Cada teste parte de fusão rolante e calibração virgens."""
-    fr.reset()
-    nc.reset()
+    from app.services import secoes_mf, section_history, decision_log, rota_leve
+    for mod in (fr, nc, secoes_mf, section_history, decision_log, rota_leve):
+        mod.reset()
     yield
-    fr.reset()
-    nc.reset()
+    for mod in (fr, nc, secoes_mf, section_history, decision_log, rota_leve):
+        mod.reset()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -468,7 +469,7 @@ class TestMemoriaEOrquestrador:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Snapshot — serialização round-trip
+# Snapshot — serialização round-trip + WARM START
 # ─────────────────────────────────────────────────────────────────────────────
 class TestSnapshot:
     def test_to_dict_restore_roundtrip(self):
@@ -485,3 +486,240 @@ class TestSnapshot:
         assert est2.tem_dados is True
         assert est2.ocupacao == pytest.approx(est.ocupacao or 15.0, abs=0.1)
         assert "porta" in est2.nos
+
+    def test_warm_start_restaura_tudo_apos_restart_simulado(self):
+        """MEMÓRIA: a_actual, âncora, filas e pares (w,c) sobrevivem ao restart."""
+        # treina a regressão com dados variados + âncora + fila
+        for i in range(12):
+            fr.ingest_wifi_bandas("wc-02", "f", "porta", 10 + i * 6, 14,
+                                  ts_ms=T0_MS + i * 60_000)
+            fr.ingest_cabecas("wc-02", "f", 8 + i * 3,
+                              ts_ms=T0_MS + i * 60_000 + 1000)
+        est = fr.get_estimador("wc-02_f")
+        antes = est.payload(T0 + 12 * 60.0)
+        pares_antes = est.regression_pairs()
+        assert len(pares_antes) >= 10
+
+        # restart simulado: serializar tudo, destruir o processo lógico, restaurar
+        snapshot = {sid: e.to_dict() for sid, e in fr._ESTIMADORES.items()}
+        fr.reset()
+        for sid, estado in snapshot.items():
+            fr.get_estimador(sid).restore(estado)
+
+        est2 = fr.get_estimador("wc-02_f")
+        depois = est2.payload(T0 + 12 * 60.0)
+        assert depois["a_actual"] == antes["a_actual"]
+        assert depois["idade_ancora_s"] == antes["idade_ancora_s"]
+        assert depois["fila_estimada"] == antes["fila_estimada"]
+        assert est2.regression_pairs() == pares_antes   # nenhum par perdido
+        assert len(est2.historia) == len(est.historia)  # memória intacta
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Onda 6 — secções M/F, dwell, mulheres primeiro
+# ─────────────────────────────────────────────────────────────────────────────
+class TestSecoesMF:
+    def test_espera_f_maior_que_m_com_filas_iguais(self):
+        """Dwell F=3.6 > M=2.0 ⇒ a mesma fila espera mais no F."""
+        from app.services import secoes_mf
+        fila = 300.0
+        # WC-03: 54 M / 48 F — normaliza por posições para isolar o dwell
+        em = secoes_mf.espera_prevista_min("wc-03_m", fila)
+        ef = secoes_mf.espera_prevista_min("wc-03_f", fila)
+        assert ef > em
+        # razão esperada = (dwell_f/pos_f)/(dwell_m/pos_m), tolerante a arredondamento
+        assert ef / em == pytest.approx((3.6 / 48) / (2.0 / 54), rel=0.02)
+
+    def test_pedido_f_nunca_ve_seccao_m(self):
+        from app.services import secoes_mf
+        sf = secoes_mf.seccoes_permitidas("f")
+        sm = secoes_mf.seccoes_permitidas("m")
+        assert all(not s.endswith("_m") for s in sf)
+        assert all(not s.endswith("_f") for s in sm)
+        # unissexo presente nos dois (válvula feminina)
+        assert {"wc-05", "wc-06"} <= set(sf) and {"wc-05", "wc-06"} <= set(sm)
+
+    def test_regra_wc05_usa_interior_mais_fila(self):
+        """(interior+fila) > 0.85×(cap+espera) — NUNCA só interior."""
+        from app.services import secoes_mf
+        # cap=133, espera=106.4 → limite = 0.85×239.4 = 203.49
+        assert secoes_mf.wc05_bloquear_steward(133.0, 0.0) is False  # só interior NUNCA dispara
+        assert secoes_mf.wc05_bloquear_steward(130.0, 80.0) is True
+        assert secoes_mf.wc05_bloquear_steward(100.0, 100.0) is False  # 200 < 203.49
+
+    def test_queue_cap_do_seed(self):
+        from app.services import secoes_mf
+        # WC-01: espera 81, posições 72M/63F (135) → quota proporcional
+        assert secoes_mf.queue_cap("wc-01_m") == pytest.approx(81 * 72 / 135, abs=0.1)
+        assert secoes_mf.queue_cap("wc-05") == pytest.approx(106.4, abs=0.1)
+
+    def test_alertas_warn_e_crit(self):
+        from app.services import secoes_mf
+        qc = secoes_mf.queue_cap("wc-04_f")
+        assert secoes_mf.alerta_fila("wc-04_f", qc * 0.5) is None
+        assert secoes_mf.alerta_fila("wc-04_f", qc * 0.8) == "WARN"
+        assert secoes_mf.alerta_fila("wc-04_f", qc * 1.0) == "CRIT"
+
+    def test_cluster_fechado_auditado_e_excluido(self):
+        """decision_log regista com utilizador+ts; encaminhamento exclui."""
+        from app.services import secoes_mf, decision_log
+        secoes_mf.set_fechado("wc-06", True, "matheus", "inundação simulada")
+        assert secoes_mf.is_fechado("wc-06")
+        assert "wc-06" not in secoes_mf.seccoes_permitidas("f")
+        assert secoes_mf.servico_pmin("wc-06") == 0.0
+        assert secoes_mf.espera_prevista_min("wc-06", 10) == 999.0
+        regs = decision_log.query(tipo="cluster_fechado")
+        assert len(regs) == 1
+        assert regs[0]["utilizador"] == "matheus"
+        assert regs[0]["ts_ms"] > 0
+        assert regs[0]["antes"]["fechado"] is False
+        assert regs[0]["depois"]["fechado"] is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Onda 5 — section_history + replay
+# ─────────────────────────────────────────────────────────────────────────────
+class TestSectionHistory:
+    def test_grava_1_por_minuto_e_pagina(self):
+        from app.services import section_history as sh
+        from app.services import fusao_rolante_demo as demo
+        demo.demo_tick(T0)
+        # 6 minutos de registos (force bypassa o relógio real)
+        for i in range(6):
+            n = sh.record_minute(T0 + i * 60.0, force=True)
+            assert n == 14
+        # dentro do mesmo minuto NÃO duplica
+        assert sh.record_minute(T0 + 5 * 60.0) == 0
+        page = sh.query("wc-05", page=1, size=4)
+        assert page["total"] == 6
+        assert page["pages"] == 2
+        assert len(page["registos"]) == 4
+        r = page["registos"][0]
+        for campo in ("ts_ms", "ocupacao", "fila", "espera_prevista_min",
+                      "confianca", "a_actual", "alertas"):
+            assert campo in r
+
+    def test_replay_em_blocos_de_10_min(self):
+        from app.services import section_history as sh
+        from app.services import fusao_rolante_demo as demo
+        from datetime import datetime, timezone
+        dia0 = datetime(2025, 6, 15, tzinfo=timezone.utc).timestamp()
+        demo.demo_tick(dia0)
+        for i in range(35):   # 35 min → blocos 0,1,2,3
+            sh.record_minute(dia0 + i * 60.0, force=True)
+        rep = sh.replay_dia("2025-06-15")
+        assert rep["bloco_min"] == 10
+        assert rep["total_seccoes"] == 14
+        serie = rep["seccoes"]["wc-06"]
+        assert [b["bloco"] for b in serie] == [0, 1, 2, 3]
+        assert serie[0]["amostras"] == 10
+
+    @pytest.mark.asyncio
+    async def test_endpoints_history_e_replay(self, client):
+        from app.services import section_history as sh
+        from app.services import fusao_rolante_demo as demo
+        demo.demo_tick(T0)
+        for i in range(5):
+            sh.record_minute(T0 + i * 60.0, force=True)
+        r = await client.get("/api/v1/history/wc-01_m?size=3")
+        assert r.status_code == 200
+        assert r.json()["total"] == 5
+        r = await client.get("/api/v1/history/wc-99")
+        assert r.status_code == 404
+        r = await client.get("/api/v1/history/replay?dia=not-a-date")
+        assert r.status_code == 422
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Onda 8 — rota mais leve (Dijkstra, género, histerese, fecho)
+# ─────────────────────────────────────────────────────────────────────────────
+class TestRotaLeve:
+    def test_dijkstra_usa_grafo_com_vizinhancas_confirmadas(self):
+        from app.services import rota_leve
+        walk = rota_leve.dijkstra_min("WC-01")
+        assert walk["WC-01"] == 0.0
+        # WC-08 é vizinho directo de WC-01 (confirmado) — 1 salto
+        from app.clusters_geo import distance_m
+        assert walk["WC-08"] == pytest.approx(distance_m("WC-01", "WC-08") / 70.0, abs=0.1)
+        assert walk["WC-02"] == pytest.approx(distance_m("WC-01", "WC-02") / 70.0, abs=0.1)
+        # todos os clusters alcançáveis
+        assert len(walk) == 8
+
+    def test_route_respeita_genero_e_custo_decomposto(self):
+        from app.services import rota_leve
+        from app.services import fusao_rolante_demo as demo
+        demo.demo_tick(T0)
+        r = rota_leve.compute_route("ENTRADA", "f", now_s=T0)
+        assert 1 <= len(r["opcoes"]) <= 3
+        for o in r["opcoes"]:
+            assert not o["wc"].endswith("_m")   # F NUNCA vê secções M
+            for campo in ("wc", "tipo", "caminhada_min", "fila_min",
+                          "congestao", "surto", "confianca", "total_min",
+                          "quota_pct"):
+                assert campo in o
+        # anti-manada: as quotas não são 100/0/0
+        if len(r["opcoes"]) > 1:
+            assert r["opcoes"][0]["quota_pct"] < 100.0
+        assert r["narrativa"]["pt"] and r["narrativa"]["en"]
+
+    def test_histerese_impede_flip_flop(self):
+        from app.services import rota_leve, secoes_mf
+        from app.services import fusao_rolante_demo as demo
+        demo.demo_tick(T0)
+        r1 = rota_leve.compute_route("WC-03", "m", now_s=T0)
+        rec1 = r1["recomendado"]
+        # pequena perturbação: fila ligeira no recomendado (ganho <20%)
+        est = fr.get_estimador(rec1)
+        est.fila_estimada = min(est.fila_estimada + 3.0,
+                                secoes_mf.queue_cap(rec1) * 1.4)
+        r2 = rota_leve.compute_route("WC-03", "m", now_s=T0 + 30.0)
+        assert r2["recomendado"] == rec1     # não troca: ganho pequeno e <3 min
+        assert r2["recomendado_desde_s"] >= 30.0
+
+    def test_route_exclui_cluster_fechado_no_mesmo_tick(self):
+        from app.services import rota_leve, secoes_mf
+        from app.services import fusao_rolante_demo as demo
+        demo.demo_tick(T0)
+        r1 = rota_leve.compute_route("PALCO_MUNDO", "f", now_s=T0)
+        alvo = r1["recomendado"].split("_")[0]
+        secoes_mf.set_fechado(alvo, True, "ricardo", "teste de fecho")
+        rota_leve.reset()   # o PUT real faz isto — cache e histerese caem já
+        r2 = rota_leve.compute_route("PALCO_MUNDO", "f", now_s=T0 + 1.0)
+        assert all(not o["wc"].startswith(alvo) for o in r2["opcoes"])
+
+    @pytest.mark.asyncio
+    async def test_endpoint_route_e_estado(self, client):
+        from app.services import fusao_rolante_demo as demo
+        demo.demo_tick(T0)
+        r = await client.get("/api/v1/route?origem=ENTRADA&genero=f")
+        assert r.status_code == 200
+        assert r.json()["recomendado"] is not None
+        r = await client.get("/api/v1/route?origem=NARNIA&genero=f")
+        assert r.status_code == 422
+        # fechar cluster por API, auditado
+        r = await client.put("/api/v1/sections/wc-06/estado", json={
+            "fechado": True, "utilizador": "goncalo", "justificacao": "drill",
+        })
+        assert r.status_code == 200
+        assert r.json()["estado"]["fechado"] is True
+        r = await client.get("/api/v1/decisions?tipo=cluster_fechado")
+        assert r.json()["total"] == 1
+        r = await client.get("/api/v1/route?origem=ENTRADA&genero=f")
+        assert all(not o["wc"].startswith("wc-06") for o in r.json()["opcoes"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Idempotência do ingest
+# ─────────────────────────────────────────────────────────────────────────────
+class TestIdempotencia:
+    def test_mesmo_no_mesmo_ts_conta_uma_vez(self):
+        fr.ingest_cabecas("wc-01", "m", 10, ts_ms=T0_MS)
+        p1 = fr.ingest_wifi_bandas("wc-01", "m", "porta", 50, 5,
+                                   ts_ms=T0_MS + 60_000)
+        est = fr.get_estimador("wc-01_m")
+        hist_len = len(est.historia)
+        # repetição exacta (mesmo nó + mesmo ts) é ignorada por inteiro
+        p2 = fr.ingest_wifi_bandas("wc-01", "m", "porta", 50, 5,
+                                   ts_ms=T0_MS + 60_000)
+        assert len(est.historia) == hist_len
+        assert p2["ocupacao"] == p1["ocupacao"]

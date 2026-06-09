@@ -55,6 +55,11 @@ class SectionState(BaseModel):
     idade_ancora_s: Optional[float] = None
     nos_online: Optional[int] = None
     flag_anomalia: Optional[bool] = None
+    # Secções M/F (onda 6) — espera por dwell, fila vs queue_cap, fecho
+    espera_prevista_min: Optional[float] = None
+    queue_cap: Optional[float] = None
+    alerta_fila: Optional[str] = None        # "WARN" | "CRIT" | None
+    fechado: Optional[bool] = None
 
     @field_validator("section_id")
     @classmethod

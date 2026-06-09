@@ -7,9 +7,13 @@ Segue o padrão de app/models/db/sensors.py — SQLAlchemy clássico.
 from __future__ import annotations
 
 from sqlalchemy import (
-    Column, String, Integer, Boolean, Text, ForeignKey, BigInteger, Float, func, text
+    Column, String, Integer, Boolean, Text, ForeignKey, BigInteger, Float, func, text,
+    JSON, Index,
 )
-from sqlalchemy.dialects.postgresql import TIMESTAMP, JSONB
+from sqlalchemy.dialects.postgresql import TIMESTAMP, JSONB as _PGJSONB
+
+# JSONB em Postgres, JSON em SQLite (dev/teste) — DDL idêntica em produção
+JSONB = _PGJSONB().with_variant(JSON(), "sqlite")
 
 from app.db import Base
 
@@ -84,7 +88,7 @@ class IngestSnapshot(Base):
     __tablename__ = "ingest_snapshots"
 
     cluster_id = Column(String, primary_key=True)
-    params_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    params_json = Column(JSONB, nullable=False)
     ts_server   = Column(BigInteger, nullable=False)   # unix ms
     ts_device   = Column(BigInteger, nullable=True)    # unix ms
     updated_at  = Column(TIMESTAMP(timezone=True), server_default=func.now(),
@@ -99,10 +103,52 @@ class FusaoRolanteSnapshot(Base):
     __tablename__ = "fusao_rolante_snapshots"
 
     section_id = Column(String, primary_key=True)      # ex. "wc-01_m", "wc-05"
-    state_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    state_json = Column(JSON, nullable=False)          # JSON genérico (PG+SQLite)
     ts_server  = Column(BigInteger, nullable=False)    # unix ms
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(),
                         onupdate=func.now())
+
+
+# ============================================================================
+# SECTION HISTORY — 1 registo/min por secção · retenção 7 dias (onda 5a)
+# Migrações ADITIVAS: nenhum deploy apaga este histórico.
+# ============================================================================
+class SectionHistory(Base):
+    """Memória operacional ao minuto: o sistema lembra-se de TUDO."""
+    __tablename__ = "section_history"
+    __table_args__ = (Index("ix_secthist_sec_ts", "section_id", "ts_ms"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    section_id = Column(String, nullable=False)        # "wc-01_m" | "wc-05"
+    ts_ms = Column(BigInteger, nullable=False)         # minuto, unix ms UTC
+    ocupacao = Column(Float, nullable=False, server_default=text("0"))
+    fila = Column(Float, nullable=False, server_default=text("0"))
+    espera_prevista_min = Column(Float, nullable=False, server_default=text("0"))
+    confianca = Column(Float, nullable=False, server_default=text("0"))
+    a_actual = Column(Float, nullable=False, server_default=text("0"))
+    alertas = Column(JSON, nullable=True)              # ["WARN_FILA", ...]
+
+
+# ============================================================================
+# DECISION LOG — auditoria total (onda 5b): nada acontece sem rasto
+# ============================================================================
+class DecisionLog(Base):
+    """Toda a decisão do motor e todo o comando do operador, com antes/depois."""
+    __tablename__ = "decision_log"
+    __table_args__ = (Index("ix_declog_ts", "ts_ms"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ts_ms = Column(BigInteger, nullable=False)         # unix ms UTC
+    tipo = Column(String, nullable=False)
+    # tipo: alerta_warn | alerta_crit | troca_recomendacao | pre_surto |
+    #       modo_degradado | cluster_fechado | cluster_reaberto | desvio
+    origem = Column(String, nullable=False, server_default=text("'motor'"))
+    # origem: motor | operador
+    utilizador = Column(String, nullable=True)         # obrigatório p/ operador
+    seccao = Column(String, nullable=True)
+    antes = Column(JSON, nullable=True)
+    depois = Column(JSON, nullable=True)
+    justificacao = Column(Text, nullable=True)
 
 
 # ============================================================================

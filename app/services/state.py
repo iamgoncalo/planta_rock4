@@ -166,27 +166,37 @@ def get_live_payload() -> LivePayload:
     # Fusão rolante (cabeças + WiFi): expõe ocupacao/fila/confianca_cruzada/
     # a_actual/idade_ancora_s/nos_online/flag_anomalia por secção com dados
     try:
-        from app.services import fusao_rolante
+        from app.services import fusao_rolante, secoes_mf
         rolante = fusao_rolante.get_all()
-        if rolante:
+        fechados = secoes_mf.estado_fechados()
+        if rolante or fechados:
             enriched2: list[SectionState] = []
             for s in sections:
-                rp = rolante.get(s.section_id.lower())
+                sid = s.section_id.lower()
+                cid = sid.split("_")[0]
+                rp = rolante.get(sid)
+                extra: dict = {}
                 if rp is not None:
                     cap = max(int(rp.get("capacidade") or 0), 1)
-                    enriched2.append(s.model_copy(update={
+                    fila = float(rp["fila_estimada"])
+                    extra = {
                         "ocupacao_pct": round(min(100.0, max(
                             0.0, float(rp["ocupacao"]) / cap * 100.0)), 1),
-                        "fila_estimada": rp["fila_estimada"],
+                        "fila_estimada": fila,
                         "confianca_cruzada": rp["confianca_cruzada"],
                         "a_actual": rp["a_actual"],
                         "idade_ancora_s": rp["idade_ancora_s"],
                         "nos_online": rp["nos_online"],
                         "flag_anomalia": rp["flag_anomalia"],
+                        "espera_prevista_min": secoes_mf.espera_prevista_min(sid, fila),
+                        "queue_cap": secoes_mf.queue_cap(sid),
+                        "alerta_fila": secoes_mf.alerta_fila(sid, fila),
                         "simulated": False,
-                    }))
-                else:
-                    enriched2.append(s)
+                    }
+                if fechados.get(cid, {}).get("fechado"):
+                    extra["fechado"] = True
+                    extra["alerta_fila"] = "CRIT"
+                enriched2.append(s.model_copy(update=extra) if extra else s)
             sections = enriched2
     except Exception:
         pass  # a fusão rolante nunca pode derrubar o /state
