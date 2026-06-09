@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Response
 from app.models.sections import SECTION_IDS, SectionState, LivePayload, GlobalKPIs
 from app.services.state import get_live_payload, get_section_state
 
-router = APIRouter(prefix="/v1", tags=["sections"])
+router = APIRouter(prefix="/api/v1", tags=["sections"])
 
 
 @router.get("/sections", response_model=LivePayload)

@@ -230,6 +230,9 @@ def create_app() -> FastAPI:
     @app.get("/{full_path:path}", include_in_schema=False)
     @app.post("/{full_path:path}", include_in_schema=False)
     async def proxy_nextjs(full_path: str, request: Request):
+        if full_path.startswith("api/") or full_path.startswith("v1/"):
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": "Rota API desconhecida: /" + full_path}, status_code=404)
         # Strip hop-by-hop request headers
         skip_req = {"host", "connection", "transfer-encoding", "te",
                     "trailers", "upgrade", "keep-alive", "accept-encoding"}
