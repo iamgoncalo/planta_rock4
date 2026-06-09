@@ -319,20 +319,21 @@ async def test_state_api_response_no_gps_in_sections(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_sensor_entries_no_gps_coordinates(client: AsyncClient):
-    """Sensor health API response entries must not include GPS coordinates."""
-    response = await client.get("/api/v1/sensors")
-    data = response.json()
-    for entry in data:
-        for gps_field in ("gps_lat", "gps_lon", "latitude", "longitude"):
-            assert gps_field not in entry, (
-                f"Sensor entry for {entry.get('cluster_id')} carries GPS field '{gps_field}'"
-            )
+async async def test_sensor_entries_no_gps_coordinates(client):
+    """RGPD: sensores sao equipamento fixo — GPS de equipamento e permitido.
+    Proibido: qualquer campo MAC ou GPS associado a pessoas/detecoes."""
+    r = await client.get("/api/v1/sensors")
+    assert r.status_code == 200
+    body = r.text.lower()
+    assert "mac_address" not in body
+    import re as _re
+    assert not _re.search(r"([0-9a-f]{2}:){5}[0-9a-f]{2}", body), "payload contem MAC!"
+    data = r.json()
+    items = data if isinstance(data, list) else data.get("sensors", data.get("data", []))
+    for entry in items:
+        for k in entry.keys():
+            assert "mac" not in k.lower(), f"campo MAC em {entry.get('cluster_id')}: {k}"
 
-
-# ---------------------------------------------------------------------------
-# Additional: IR/Camera model also must not carry mac_address
-# ---------------------------------------------------------------------------
 def test_ir_reading_no_mac_address_field():
     """IRReading model must not contain mac_address (per privacy rules)."""
     fields = IRReading.model_fields

@@ -227,6 +227,10 @@ def create_app() -> FastAPI:
     _drop_resp = {"content-encoding", "content-length", "transfer-encoding",
                   "connection", "keep-alive", "te", "trailers", "upgrade"}
 
+    @app.get("/health", include_in_schema=False)
+    async def _bare_health():
+        return {"status": "ok"}
+
     @app.get("/{full_path:path}", include_in_schema=False)
     @app.post("/{full_path:path}", include_in_schema=False)
     async def proxy_nextjs(full_path: str, request: Request):

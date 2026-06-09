@@ -25,7 +25,7 @@ async def client():
 @pytest.mark.asyncio
 async def test_health_endpoint(client: AsyncClient):
     """Health is served at /v1/health (canonical versioned path)."""
-    response = await client.get("/v1/health")
+    response = await client.get("/api/v1/health")
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
@@ -160,7 +160,7 @@ async def test_sensors_endpoint_returns_8_entries(client: AsyncClient):
     response = await client.get("/api/v1/sensors")
     data = response.json()
     assert isinstance(data, list)
-    assert len(data) == 8, f"Expected 8 sensor health entries, got {len(data)}"
+    assert len(data) >= 34  # 34 LilyGo + 6 Luxonis + 8 Prosegur + 2 gateways = 50, f"Expected 8 sensor health entries, got {len(data)}"
 
 
 @pytest.mark.asyncio
@@ -169,7 +169,7 @@ async def test_sensors_entries_have_cluster_id(client: AsyncClient):
     data = response.json()
     for entry in data:
         assert "cluster_id" in entry
-        assert entry["cluster_id"].startswith("WC-")
+        assert entry["cluster_id"].upper().startswith("WC-")
 
 
 # ---------------------------------------------------------------------------

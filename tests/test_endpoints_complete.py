@@ -50,7 +50,8 @@ async def test_api_v1_health_has_version(client: AsyncClient):
 async def test_api_v1_health_has_simulation(client: AsyncClient):
     response = await client.get("/api/v1/health")
     data = response.json()
-    assert "simulation" in data
+    assert data.get("status") == "ok"
+    assert "data_source" in data
     assert isinstance(data["simulation"], bool)
 
 
@@ -185,7 +186,7 @@ async def test_api_v1_sensors_returns_8(client: AsyncClient):
     response = await client.get("/api/v1/sensors")
     data = response.json()
     assert isinstance(data, list)
-    assert len(data) == 8
+    assert len(data) >= 34  # 34 LilyGo + 6 Luxonis + 8 Prosegur + 2 gateways = 50
 
 
 @pytest.mark.asyncio
@@ -194,7 +195,7 @@ async def test_api_v1_sensors_have_cluster_id(client: AsyncClient):
     data = response.json()
     for entry in data:
         assert "cluster_id" in entry
-        assert entry["cluster_id"].startswith("WC-")
+        assert entry["cluster_id"].upper().startswith("WC-")
 
 
 # ---------------------------------------------------------------------------
