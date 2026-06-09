@@ -256,7 +256,9 @@ class TestAPIFusaoRolante:
 
         r = await client.get("/api/v1/fusion")
         assert r.status_code == 200
-        sec = r.json()["clusters"]["wc-01"]["seccoes"]["m"]
+        cluster = r.json()["clusters"]["wc-01"]
+        assert cluster["estado"] == "ok"   # contrato com /v2/sensors/fusion
+        sec = cluster["seccoes"]["m"]
         assert 0.0 <= sec["ocupacao"] <= 72.0       # cap_m WC-01 (clusters_geo)
         assert sec["ocupacao"] == pytest.approx(30.0, abs=1.0)  # âncora fresca
         assert 0.0 < sec["confianca_cruzada"] <= 1.0

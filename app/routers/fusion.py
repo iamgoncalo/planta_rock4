@@ -85,6 +85,7 @@ async def fusion_cluster(cluster_id: str, mode: str = Query(default="sim")):
             )
             r["cluster_id"] = cluster_id
             r["mode"] = "sim"
+            r["estado"] = "ok"          # contrato com o frontend (≠ "sem-dados")
             r["data_source"] = "simulado"
             r["fontes_disponiveis"] = srcs
             r["capacidade_dentro"] = cap_in
@@ -112,6 +113,7 @@ async def fusion_cluster(cluster_id: str, mode: str = Query(default="sim")):
         )
         r["cluster_id"] = cluster_id
         r["mode"] = "real"
+        r["estado"] = "ok"              # contrato com o frontend (≠ "sem-dados")
         r["data_source"] = "real" if age < 30 else "stale"
         r["fontes_disponiveis"] = srcs
         r["capacidade_dentro"] = cap_in

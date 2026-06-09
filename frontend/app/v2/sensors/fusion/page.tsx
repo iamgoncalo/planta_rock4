@@ -266,12 +266,20 @@ export default function SensorConsole(){
               const f=fusions[selFusion];
               if(!f)return <p className="sx-soft">A carregar…</p>;
               const seccoes=Object.entries(f.seccoes||{}) as [string,any][];
+              // tem fusão se o backend não disse explicitamente "sem-dados"
+              // e devolveu uma contagem (robusto a versões sem campo estado)
+              const temFusao=f.estado!=='sem-dados'&&f.pessoas!=null;
               return (
                 <>
-                  {f.estado!=='ok' ? (
+                  {!temFusao ? (
                     <div className="sx-fusao-empty">
                       <p>Sem dados para {selFusion.toUpperCase()}.</p>
-                      <p className="sx-soft">Fontes: {(f.fontes_disponiveis||[]).join(', ')} · {mode==='real'?'aguarda sensores reais':'—'}</p>
+                      <p className="sx-soft">
+                        Fontes previstas: {(f.fontes_disponiveis||[]).map(srcLabel).join(' · ')||'—'}
+                        {mode==='real'
+                          ? ' — instalação no terreno a 11–12 Jun; até lá usa o modo Simulação.'
+                          : ''}
+                      </p>
                     </div>
                   ) : (
                     <div className="sx-fusao-grid">
