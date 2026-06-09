@@ -19,11 +19,12 @@ import logging
 import os
 import time as _time
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
-from typing import Optional, Any
+from pydantic import BaseModel, Field
+from typing import Optional, Any, Union
 
 from app.config import get_settings
 from app.services import ingest_store
+from app.services import fusao_rolante
 from app.clusters_capacity import ALL_CLUSTERS, is_unisex, occupancy_pct
 from app.sensors_topology import USAR_IR
 
@@ -56,6 +57,26 @@ class IngestBody(BaseModel):
     cluster_id: str
     ts: Optional[int] = None
     params: IngestParams
+
+
+class IngestWifiBandas(BaseModel):
+    """Payload WiFi por bandas RSSI (fusão rolante) — só CONTAGENS agregadas.
+    ZONA_A: acima do threshold do nó · ZONA_B: entre -70 dBm e o threshold."""
+    cluster: str
+    secao: Optional[str] = None        # "m"|"f" obrigatório em MF; ignorado em UNI
+    no: str = Field(min_length=1)      # id do nó (ex. "porta", "wc-01_m_porta")
+    macs_A: int = Field(ge=0)          # contagem agregada banda A (nunca MACs)
+    macs_B: int = Field(ge=0)          # contagem agregada banda B
+    ts: Optional[int] = None           # epoch ms
+
+
+class IngestCabecas(BaseModel):
+    """Payload de contagem de cabeças (âncora absoluta da fusão rolante)."""
+    cluster: str
+    secao: Optional[str] = None
+    cabecas: int = Field(ge=0)
+    fonte: str = "manual"              # prosegur | luxonis | manual | ...
+    ts: Optional[int] = None           # epoch ms
 
 
 def _check_auth(ops_secret: Optional[str], ingest_token: Optional[str]) -> None:
@@ -160,14 +181,81 @@ def _run_fusion(cid: str, params: dict, ts_ms: int) -> None:
         pass   # fusao nao pode parar a ingestao
 
 
+def _resolve_secao(cid: str, secao: Optional[str]) -> Optional[str]:
+    """Valida (cluster, secao) para a fusão rolante. 422 se inválido."""
+    if is_unisex(cid):
+        return None  # WC-05/WC-06: UMA secção, sem split M/F
+    s = (secao or "").strip().lower()
+    if s not in ("m", "f"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"cluster {cid} é M/F — secao deve ser 'm' ou 'f' (recebido: {secao!r})",
+        )
+    return s
+
+
+def _invalidate_state_cache() -> None:
+    """Após ingestão da fusão rolante, força recomputação do live payload."""
+    try:
+        from app.services import state as _state
+        _state._PAYLOAD_CACHE["data"] = None   # data=None invalida sempre
+    except Exception:
+        pass
+
+
+def _ingest_wifi_bandas(body: IngestWifiBandas) -> dict:
+    cid = body.cluster.lower()
+    if cid not in ALL_CLUSTERS:
+        raise HTTPException(status_code=422, detail=f"cluster desconhecido: {body.cluster!r}")
+    secao = _resolve_secao(cid, body.secao)
+    seccao_payload = fusao_rolante.ingest_wifi_bandas(
+        cid, secao, body.no, body.macs_A, body.macs_B, ts_ms=body.ts,
+    )
+    if seccao_payload is None:
+        raise HTTPException(status_code=422, detail=f"secção inválida para {cid}: {body.secao!r}")
+    _invalidate_state_cache()
+    return {
+        "ok": True, "tipo": "wifi_bandas", "cluster_id": cid,
+        "secao": seccao_payload["secao"], "no": body.no,
+        "seccao": seccao_payload,
+    }
+
+
+def _ingest_cabecas(body: IngestCabecas) -> dict:
+    cid = body.cluster.lower()
+    if cid not in ALL_CLUSTERS:
+        raise HTTPException(status_code=422, detail=f"cluster desconhecido: {body.cluster!r}")
+    secao = _resolve_secao(cid, body.secao)
+    seccao_payload = fusao_rolante.ingest_cabecas(
+        cid, secao, body.cabecas, fonte=body.fonte, ts_ms=body.ts,
+    )
+    if seccao_payload is None:
+        raise HTTPException(status_code=422, detail=f"secção inválida para {cid}: {body.secao!r}")
+    _invalidate_state_cache()
+    return {
+        "ok": True, "tipo": "cabecas", "cluster_id": cid,
+        "secao": seccao_payload["secao"], "fonte": body.fonte,
+        "seccao": seccao_payload,
+    }
+
+
 @router.post("/ingest")
 async def ingest(
-    body: IngestBody,
+    body: Union[IngestWifiBandas, IngestCabecas, IngestBody],
     x_ops_secret: Optional[str] = Header(default=None),
     x_ingest_token: Optional[str] = Header(default=None),
 ):
     _check_auth(x_ops_secret, x_ingest_token)
 
+    # Fusão rolante — payload WiFi por bandas {cluster, secao, no, macs_A, macs_B, ts}
+    if isinstance(body, IngestWifiBandas):
+        return _ingest_wifi_bandas(body)
+
+    # Fusão rolante — payload de cabeças {cluster, secao, cabecas, fonte, ts}
+    if isinstance(body, IngestCabecas):
+        return _ingest_cabecas(body)
+
+    # Formato canónico existente (LilyGo/Luxonis/Prosegur com fonte=)
     cid = body.cluster_id.lower()
     if cid not in ALL_CLUSTERS:
         raise HTTPException(status_code=422, detail=f"cluster_id desconhecido: {body.cluster_id!r}")

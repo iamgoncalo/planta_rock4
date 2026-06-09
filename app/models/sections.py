@@ -48,6 +48,13 @@ class SectionState(BaseModel):
     confianca: float = 0.5            # I-5: sempre presente ∈ [0,1]
     fontes_activas: list[str] = []
     stale: bool = False
+    # Fusão rolante (cabeças + WiFi) — presentes quando a secção tem dados
+    fila_estimada: Optional[float] = None
+    confianca_cruzada: Optional[float] = None
+    a_actual: Optional[float] = None
+    idade_ancora_s: Optional[float] = None
+    nos_online: Optional[int] = None
+    flag_anomalia: Optional[bool] = None
 
     @field_validator("section_id")
     @classmethod

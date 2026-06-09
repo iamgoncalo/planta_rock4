@@ -18,6 +18,10 @@ try:
     from app.services import ingest_store
 except Exception:
     ingest_store = None
+try:
+    from app.services import fusao_rolante
+except Exception:
+    fusao_rolante = None
 
 router = APIRouter(prefix="/api/v1", tags=["fusion"])
 
@@ -30,6 +34,18 @@ CLUSTER_SOURCES = {
 }
 
 
+def _seccoes_rolante(cluster_id: str) -> dict:
+    """Fusão rolante por secção: {'m':…,'f':…} em MF, {'u':…} nos unissexo.
+    Cada secção: ocupacao, fila_estimada, confianca_cruzada, a_actual,
+    idade_ancora_s, nos_online, flag_anomalia. Vazio se ainda sem dados."""
+    if fusao_rolante is None:
+        return {}
+    try:
+        return fusao_rolante.get_cluster_payload(cluster_id)
+    except Exception:
+        return {}
+
+
 def _empty(cluster_id: str, mode: str, reason: str) -> dict:
     return {
         "cluster_id": cluster_id, "mode": mode,
@@ -38,6 +54,7 @@ def _empty(cluster_id: str, mode: str, reason: str) -> dict:
         "confianca": 0.0, "fontes_usadas": [], "pesos": {}, "estimativas_por_fonte": {},
         "fontes_disponiveis": CLUSTER_SOURCES.get(cluster_id, []),
         "capacidade_dentro": 0,
+        "seccoes": _seccoes_rolante(cluster_id),
         "razao": reason,
     }
 
@@ -71,6 +88,7 @@ async def fusion_cluster(cluster_id: str, mode: str = Query(default="sim")):
             r["data_source"] = "simulado"
             r["fontes_disponiveis"] = srcs
             r["capacidade_dentro"] = cap_in
+            r["seccoes"] = _seccoes_rolante(cluster_id)
             return r
         except Exception as ex:
             return _empty(cluster_id, mode, f"erro no simulador: {ex}")
@@ -98,6 +116,7 @@ async def fusion_cluster(cluster_id: str, mode: str = Query(default="sim")):
         r["fontes_disponiveis"] = srcs
         r["capacidade_dentro"] = cap_in
         r["age_s"] = round(age, 1)
+        r["seccoes"] = _seccoes_rolante(cluster_id)
         return r
     except Exception as ex:
         return _empty(cluster_id, mode, f"erro na fusao real: {ex}")

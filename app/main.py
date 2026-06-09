@@ -41,6 +41,7 @@ from app.routers.fleet import router as fleet_router
 from app.routers.sensor_cmd import router as sensor_cmd_router
 from app.routers.envs import router as envs_router
 from app.routers.fusion import router as fusion_router
+from app.routers.calibration import router as calibration_router
 from app.routers.intelligence import router as intelligence_router
 from app.routers.flow import router as flow_router
 from app.routers.screen import router as screen_router
@@ -64,7 +65,7 @@ def create_app() -> FastAPI:
             from app.db import engine, Base
             # Import models so they register with Base.metadata
             from app.models.db.sensors import ClusterRef, Sensor, SensorHealth, MaintenanceLog, TerminalLog  # noqa
-            from app.models.db.operations import CleaningLog, StaffRoster, IncidentLog, IngestSnapshot  # noqa
+            from app.models.db.operations import CleaningLog, StaffRoster, IncidentLog, IngestSnapshot, FusaoRolanteSnapshot, NodeCalibration  # noqa
             from app.models.db.flow_history import FlowSnapshot, CrowdProfile  # noqa
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
@@ -133,6 +134,18 @@ def create_app() -> FastAPI:
         except Exception as e:
             logger.warning(f"ingest_store snapshot startup warning: {e}")
 
+        # Fusão rolante: recarregar snapshot + calibração e iniciar loop 60s
+        try:
+            from app.services import fusao_rolante, node_calibration
+            from app.db import AsyncSessionLocal
+            if AsyncSessionLocal is not None:
+                await node_calibration.load_from_db(AsyncSessionLocal)
+                await fusao_rolante._load_snapshot(AsyncSessionLocal)
+                asyncio.create_task(fusao_rolante.snapshot_loop(AsyncSessionLocal))
+            logger.info("fusao_rolante: snapshot recarregado + loop persistência iniciado")
+        except Exception as e:
+            logger.warning(f"fusao_rolante snapshot startup warning: {e}")
+
     # CORS — allow frontend dev servers and the API itself
     app.add_middleware(
         CORSMiddleware,
@@ -167,6 +180,7 @@ def create_app() -> FastAPI:
     app.include_router(sensor_cmd_router)
     app.include_router(envs_router)
     app.include_router(fusion_router)
+    app.include_router(calibration_router)
     app.include_router(intelligence_router)
     app.include_router(flow_router)
     app.include_router(screen_router)

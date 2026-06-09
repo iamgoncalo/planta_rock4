@@ -163,6 +163,34 @@ def get_live_payload() -> LivePayload:
             enriched.append(s)
     sections = enriched
 
+    # Fusão rolante (cabeças + WiFi): expõe ocupacao/fila/confianca_cruzada/
+    # a_actual/idade_ancora_s/nos_online/flag_anomalia por secção com dados
+    try:
+        from app.services import fusao_rolante
+        rolante = fusao_rolante.get_all()
+        if rolante:
+            enriched2: list[SectionState] = []
+            for s in sections:
+                rp = rolante.get(s.section_id.lower())
+                if rp is not None:
+                    cap = max(int(rp.get("capacidade") or 0), 1)
+                    enriched2.append(s.model_copy(update={
+                        "ocupacao_pct": round(min(100.0, max(
+                            0.0, float(rp["ocupacao"]) / cap * 100.0)), 1),
+                        "fila_estimada": rp["fila_estimada"],
+                        "confianca_cruzada": rp["confianca_cruzada"],
+                        "a_actual": rp["a_actual"],
+                        "idade_ancora_s": rp["idade_ancora_s"],
+                        "nos_online": rp["nos_online"],
+                        "flag_anomalia": rp["flag_anomalia"],
+                        "simulated": False,
+                    }))
+                else:
+                    enriched2.append(s)
+            sections = enriched2
+    except Exception:
+        pass  # a fusão rolante nunca pode derrubar o /state
+
     # Compute KPIs
     total = len(sections)
     avg_occ = sum(s.ocupacao_pct for s in sections) / total if total else 0.0

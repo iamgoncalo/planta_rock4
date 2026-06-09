@@ -7,7 +7,7 @@ Segue o padrão de app/models/db/sensors.py — SQLAlchemy clássico.
 from __future__ import annotations
 
 from sqlalchemy import (
-    Column, String, Integer, Boolean, Text, ForeignKey, BigInteger, func, text
+    Column, String, Integer, Boolean, Text, ForeignKey, BigInteger, Float, func, text
 )
 from sqlalchemy.dialects.postgresql import TIMESTAMP, JSONB
 
@@ -89,3 +89,34 @@ class IngestSnapshot(Base):
     ts_device   = Column(BigInteger, nullable=True)    # unix ms
     updated_at  = Column(TIMESTAMP(timezone=True), server_default=func.now(),
                          onupdate=func.now())
+
+
+# ============================================================================
+# FUSÃO ROLANTE — snapshot por secção para sobreviver restarts
+# ============================================================================
+class FusaoRolanteSnapshot(Base):
+    """Estado da fusão rolante (regressão + âncora + nós) por secção — 60s."""
+    __tablename__ = "fusao_rolante_snapshots"
+
+    section_id = Column(String, primary_key=True)      # ex. "wc-01_m", "wc-05"
+    state_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    ts_server  = Column(BigInteger, nullable=False)    # unix ms
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(),
+                        onupdate=func.now())
+
+
+# ============================================================================
+# NODE CALIBRATION — factor k por nó WiFi (fusão rolante)
+# ============================================================================
+class NodeCalibration(Base):
+    """Calibração de um nó WiFi: k (default 1.0), rssi_1m, threshold_dbm."""
+    __tablename__ = "node_calibration"
+
+    node_id = Column(String, primary_key=True)         # ex. "wc-01_m_porta"
+    cluster_id = Column(String, nullable=False)
+    secao = Column(String, nullable=False)             # "m" | "f" | "u"
+    k = Column(Float, nullable=False, server_default=text("1.0"))
+    rssi_1m = Column(Float, nullable=True)
+    threshold_dbm = Column(Float, nullable=True)
+    actualizado_em = Column(TIMESTAMP(timezone=True), server_default=func.now(),
+                            onupdate=func.now())
