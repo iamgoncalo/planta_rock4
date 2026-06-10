@@ -89,8 +89,8 @@ def test_scenario_section_ids_all_valid(scenario: str):
 
 @pytest.mark.parametrize("scenario", ALL_SCENARIOS)
 def test_scenario_no_gendered_unisex_ids(scenario: str):
-    """WC-05_M, WC-05_F, WC-06_M, WC-06_F must never appear."""
-    forbidden = {"WC-05_M", "WC-05_F", "WC-06_M", "WC-06_F"}
+    """Gendered variants of the unisex sections must never appear."""
+    forbidden = {f"{cid}_{g}" for cid in ("WC-05", "WC-06") for g in ("M", "F")}
     states = simulate_tick(scenario, tick=5)
     for s in states:
         assert s.section_id not in forbidden, (

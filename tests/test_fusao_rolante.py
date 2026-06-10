@@ -111,18 +111,18 @@ class TestRegressaoRolante:
 # ─────────────────────────────────────────────────────────────────────────────
 class TestEstimadorSeccao:
     def test_ancora_define_ocupacao(self):
-        p = fr.ingest_cabecas("wc-01", "m", 30, fonte="prosegur", ts_ms=T0_MS)
+        p = fr.ingest_cabecas("wc-01", "m", 30, fonte="prosegur", ts_ms=T0_MS, now_s=T0)
         assert p is not None
         assert p["ocupacao"] == 30.0
         assert p["idade_ancora_s"] == 0.0
 
     def test_trava_fisica_trunca_pico_500_macs(self):
         """Pico de 500 macs num minuto → truncado a n_acessos×40 + flag."""
-        fr.ingest_wifi_bandas("wc-01", "m", "porta", 10, 0, ts_ms=T0_MS)
+        fr.ingest_wifi_bandas("wc-01", "m", "porta", 10, 0, ts_ms=T0_MS, now_s=T0)
         fr.ingest_cabecas("wc-01", "m", 10, fonte="prosegur",
-                          ts_ms=T0_MS + 60_000)
+                          ts_ms=T0_MS + 60_000, now_s=T0 + 60.0)
         p = fr.ingest_wifi_bandas("wc-01", "m", "porta", 500, 0,
-                                  ts_ms=T0_MS + 120_000)
+                                  ts_ms=T0_MS + 120_000, now_s=T0 + 120.0)
         est = fr.get_estimador("wc-01_m")
         # 1 acesso × 40 p/min × 1 min = delta máximo 40 sobre a âncora (10)
         assert est.n_acessos == 1
@@ -131,21 +131,21 @@ class TestEstimadorSeccao:
 
     def test_ocupacao_clamp_capacidade(self):
         """Estimativa nunca excede a capacidade da secção (clusters_geo)."""
-        fr.ingest_wifi_bandas("wc-01", "f", "porta", 20, 0, ts_ms=T0_MS)
-        fr.ingest_cabecas("wc-01", "f", 60, ts_ms=T0_MS + 60_000)
+        fr.ingest_wifi_bandas("wc-01", "f", "porta", 20, 0, ts_ms=T0_MS, now_s=T0)
+        fr.ingest_cabecas("wc-01", "f", 60, ts_ms=T0_MS + 60_000, now_s=T0 + 60.0)
         ts = T0_MS + 120_000
         p = None
         for i in range(30):   # subida contínua → satura na capacidade
             p = fr.ingest_wifi_bandas("wc-01", "f", "porta", 20 + (i + 1) * 80,
-                                      0, ts_ms=ts + i * 60_000)
+                                      0, ts_ms=ts + i * 60_000, now_s=T0 + 120.0 + i * 60.0)
         est = fr.get_estimador("wc-01_f")
         assert est.capacidade == 63          # cap_f de WC-01 em clusters_geo
         assert p["ocupacao"] <= 63.0
 
     def test_decaimento_sem_nos(self):
         """0 nós online → decaimento exponencial com tau de 20 min."""
-        fr.ingest_wifi_bandas("wc-02", "m", "porta", 30, 0, ts_ms=T0_MS)
-        fr.ingest_cabecas("wc-02", "m", 50, ts_ms=T0_MS + 1000)
+        fr.ingest_wifi_bandas("wc-02", "m", "porta", 30, 0, ts_ms=T0_MS, now_s=T0)
+        fr.ingest_cabecas("wc-02", "m", 50, ts_ms=T0_MS + 1000, now_s=T0 + 1.0)
         # 20 min depois, nó stale (TTL 3 min) → occ ≈ 50/e
         p = fr.get_section_payload("wc-02_m", now_s=T0 + 1.0 + 20 * 60.0)
         assert p["nos_online"] == 0
@@ -155,24 +155,24 @@ class TestEstimadorSeccao:
     def test_mediana_entre_nos_nao_media(self):
         """Agregação por mediana: outlier num nó não arrasta a secção."""
         est = fr.get_estimador("wc-03_m")
-        fr.ingest_wifi_bandas("wc-03", "m", "porta", 10, 0, ts_ms=T0_MS)
-        fr.ingest_wifi_bandas("wc-03", "m", "meio", 12, 0, ts_ms=T0_MS)
-        fr.ingest_wifi_bandas("wc-03", "m", "fundo", 500, 0, ts_ms=T0_MS)
+        fr.ingest_wifi_bandas("wc-03", "m", "porta", 10, 0, ts_ms=T0_MS, now_s=T0)
+        fr.ingest_wifi_bandas("wc-03", "m", "meio", 12, 0, ts_ms=T0_MS, now_s=T0)
+        fr.ingest_wifi_bandas("wc-03", "m", "fundo", 500, 0, ts_ms=T0_MS, now_s=T0)
         w = est.wifi_zona(T0, "macs_A")
         assert w == 12.0     # mediana(10, 12, 500) — a média seria 174
 
     def test_no_stale_sai_do_calculo(self):
         est = fr.get_estimador("wc-04_m")
-        fr.ingest_wifi_bandas("wc-04", "m", "porta", 10, 0, ts_ms=T0_MS)
+        fr.ingest_wifi_bandas("wc-04", "m", "porta", 10, 0, ts_ms=T0_MS, now_s=T0)
         fr.ingest_wifi_bandas("wc-04", "m", "meio", 40, 0,
-                              ts_ms=T0_MS + 240_000)   # 4 min depois
+                              ts_ms=T0_MS + 240_000, now_s=T0 + 240.0)   # 4 min depois
         # "porta" não posta há 4 min → fora do TTL de 3 min
         assert est.wifi_zona(T0 + 240.0, "macs_A") == 40.0
         assert len(est._nos_online(T0 + 240.0)) == 1
 
     def test_fila_estimada_zona_b(self):
         """fila = a × mediana(macs_zona_B/k), com clamp à capacidade."""
-        p = fr.ingest_wifi_bandas("wc-01", "m", "porta", 10, 20, ts_ms=T0_MS)
+        p = fr.ingest_wifi_bandas("wc-01", "m", "porta", 10, 20, ts_ms=T0_MS, now_s=T0)
         est = fr.get_estimador("wc-01_m")
         assert p["fila_estimada"] == pytest.approx(est.regressao.a * 20.0, abs=0.1)
 
@@ -187,7 +187,7 @@ class TestEstimadorSeccao:
         node_id = "wc-07_m_porta"
         assert nc.update_node(node_id, k=2.0) is not None
         est = fr.get_estimador("wc-07_m")
-        fr.ingest_wifi_bandas("wc-07", "m", node_id, 40, 0, ts_ms=T0_MS)
+        fr.ingest_wifi_bandas("wc-07", "m", node_id, 40, 0, ts_ms=T0_MS, now_s=T0)
         assert est.wifi_zona(T0, "macs_A") == 20.0
 
 
@@ -202,11 +202,11 @@ class TestConfiancaCruzada:
             c = est.confianca_cruzada(now)
             assert math.isfinite(c) and 0.0 <= c <= 1.0
         # só wifi
-        fr.ingest_wifi_bandas("wc-08", "m", "porta", 10, 0, ts_ms=T0_MS)
+        fr.ingest_wifi_bandas("wc-08", "m", "porta", 10, 0, ts_ms=T0_MS, now_s=T0)
         c = est.confianca_cruzada(T0)
         assert math.isfinite(c) and 0.0 <= c <= 1.0
         # wifi + âncora
-        fr.ingest_cabecas("wc-08", "m", 12, ts_ms=T0_MS + 1000)
+        fr.ingest_cabecas("wc-08", "m", 12, ts_ms=T0_MS + 1000, now_s=T0 + 1.0)
         c = est.confianca_cruzada(T0 + 1.0)
         assert math.isfinite(c) and 0.0 < c <= 1.0
         # âncora muito antiga (c1 → 0)
@@ -215,19 +215,19 @@ class TestConfiancaCruzada:
 
     def test_ancora_fresca_e_nos_todos_online_da_confianca_alta(self):
         for pos in ("porta", "meio", "fundo"):
-            fr.ingest_wifi_bandas("wc-01", "m", pos, 10, 0, ts_ms=T0_MS)
+            fr.ingest_wifi_bandas("wc-01", "m", pos, 10, 0, ts_ms=T0_MS, now_s=T0)
         fr.ingest_cabecas("wc-01", "m", 12, fonte="prosegur",
-                          ts_ms=T0_MS + 1000)
+                          ts_ms=T0_MS + 1000, now_s=T0 + 1.0)
         p = fr.get_section_payload("wc-01_m", now_s=T0 + 1.0)
         assert p["nos_online"] == 3
         assert 0.9 < p["confianca_cruzada"] <= 1.0
 
     def test_um_no_reduz_confianca(self):
         """1 nó online em 3 → c3 baixa → confiança reduzida vs 3 nós."""
-        fr.ingest_wifi_bandas("wc-01", "m", "porta", 10, 0, ts_ms=T0_MS)
+        fr.ingest_wifi_bandas("wc-01", "m", "porta", 10, 0, ts_ms=T0_MS, now_s=T0)
         c_1no = fr.get_estimador("wc-01_m").confianca_cruzada(T0)
         for pos in ("porta", "meio", "fundo"):
-            fr.ingest_wifi_bandas("wc-02", "m", pos, 10, 0, ts_ms=T0_MS)
+            fr.ingest_wifi_bandas("wc-02", "m", pos, 10, 0, ts_ms=T0_MS, now_s=T0)
         c_3nos = fr.get_estimador("wc-02_m").confianca_cruzada(T0)
         assert c_1no < c_3nos
 
@@ -383,7 +383,7 @@ class TestMemoriaEOrquestrador:
         """Cada ingestão grava um ponto; a memória é limitada a HISTORIA_MAX."""
         for i in range(900):
             fr.ingest_wifi_bandas("wc-01", "m", "porta", 10 + i % 5, 0,
-                                  ts_ms=T0_MS + i * 60_000)
+                                  ts_ms=T0_MS + i * 60_000, now_s=T0 + i * 60.0)
         est = fr.get_estimador("wc-01_m")
         assert len(est.historia) == fr.HISTORIA_MAX
         pts = est.history(50)
@@ -391,7 +391,7 @@ class TestMemoriaEOrquestrador:
         assert all(math.isfinite(p["conf"]) for p in pts)
 
     def test_payload_inclui_meta_da_regressao(self):
-        fr.ingest_wifi_bandas("wc-01", "m", "porta", 10, 2, ts_ms=T0_MS)
+        fr.ingest_wifi_bandas("wc-01", "m", "porta", 10, 2, ts_ms=T0_MS, now_s=T0)
         p = fr.get_section_payload("wc-01_m", now_s=T0)
         for campo in ("r2", "b_actual", "pares_na_janela", "n_acessos",
                       "origem", "pontos_memoria", "surto_activo"):
@@ -426,7 +426,7 @@ class TestMemoriaEOrquestrador:
         """Secção com ingestão REAL recente é intocável pelo orquestrador."""
         from app.services import fusao_rolante_demo as demo
         fr.ingest_cabecas("wc-01", "m", 33, fonte="prosegur",
-                          ts_ms=T0_MS, origem="real")
+                          ts_ms=T0_MS, origem="real", now_s=T0)
         demo.demo_tick(T0 + 10.0)
         p = fr.get_section_payload("wc-01_m", now_s=T0 + 10.0)
         assert p["origem"] == "real"
@@ -473,9 +473,9 @@ class TestMemoriaEOrquestrador:
 # ─────────────────────────────────────────────────────────────────────────────
 class TestSnapshot:
     def test_to_dict_restore_roundtrip(self):
-        fr.ingest_wifi_bandas("wc-01", "m", "porta", 10, 2, ts_ms=T0_MS)
+        fr.ingest_wifi_bandas("wc-01", "m", "porta", 10, 2, ts_ms=T0_MS, now_s=T0)
         fr.ingest_cabecas("wc-01", "m", 15, fonte="prosegur",
-                          ts_ms=T0_MS + 1000)
+                          ts_ms=T0_MS + 1000, now_s=T0 + 1.0)
         est = fr.get_estimador("wc-01_m")
         estado = est.to_dict()
 
@@ -492,9 +492,9 @@ class TestSnapshot:
         # treina a regressão com dados variados + âncora + fila
         for i in range(12):
             fr.ingest_wifi_bandas("wc-02", "f", "porta", 10 + i * 6, 14,
-                                  ts_ms=T0_MS + i * 60_000)
+                                  ts_ms=T0_MS + i * 60_000, now_s=T0 + i * 60.0)
             fr.ingest_cabecas("wc-02", "f", 8 + i * 3,
-                              ts_ms=T0_MS + i * 60_000 + 1000)
+                              ts_ms=T0_MS + i * 60_000 + 1000, now_s=T0 + i * 60.0 + 1.0)
         est = fr.get_estimador("wc-02_f")
         antes = est.payload(T0 + 12 * 60.0)
         pares_antes = est.regression_pairs()
@@ -709,17 +709,132 @@ class TestRotaLeve:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# S24 (quarentena de nó) + S25 (ts_suspeito — relógio errado)
+# ─────────────────────────────────────────────────────────────────────────────
+class TestQuarentenaETs:
+    def test_no_com_vies_entra_em_quarentena_e_sai_da_mediana(self):
+        """3 nós (dois ~10, um ~500) durante 11 min a 60s: o nó mentiroso
+        (|z| > 3 com desvio robusto 1.4826×MAD) entra em quarentena, sai da
+        agregação wifi_zona e fica registado no decision_log."""
+        from app.services import decision_log
+        for i in range(12):                      # 0..11 min, cadência 60s
+            ts = T0_MS + i * 60_000
+            agora = T0 + i * 60.0
+            fr.ingest_wifi_bandas("wc-01", "m", "porta", 10, 0,
+                                  ts_ms=ts, now_s=agora)
+            fr.ingest_wifi_bandas("wc-01", "m", "meio", 11, 0,
+                                  ts_ms=ts, now_s=agora)
+            fr.ingest_wifi_bandas("wc-01", "m", "fundo", 500, 0,
+                                  ts_ms=ts, now_s=agora)
+        est = fr.get_estimador("wc-01_m")
+        assert "fundo" in est.quarentena
+        # exposto no payload
+        p = fr.get_section_payload("wc-01_m", now_s=T0 + 11 * 60.0)
+        assert p["nos_quarentena"] == ["fundo"]
+        # nó em quarentena sai da agregação: mediana só entre porta/meio
+        assert est.wifi_zona(T0 + 11 * 60.0, "macs_A") == pytest.approx(10.5)
+        # rasto no decision_log (origem=motor, uma única entrada)
+        regs = decision_log.query(tipo="quarentena_no")
+        assert len(regs) == 1
+        assert regs[0]["origem"] == "motor"
+        assert regs[0]["seccao"] == "wc-01_m"
+        assert regs[0]["depois"]["no"] == "fundo"
+        assert regs[0]["depois"]["z"] > 3.0
+
+    def test_desvio_curto_nao_quarentena(self):
+        """Desvio com menos de 10 min de persistência NÃO quarentena."""
+        for i in range(5):                       # só 4 min de desvio
+            ts = T0_MS + i * 60_000
+            agora = T0 + i * 60.0
+            fr.ingest_wifi_bandas("wc-02", "m", "porta", 10, 0,
+                                  ts_ms=ts, now_s=agora)
+            fr.ingest_wifi_bandas("wc-02", "m", "meio", 11, 0,
+                                  ts_ms=ts, now_s=agora)
+            fr.ingest_wifi_bandas("wc-02", "m", "fundo", 500, 0,
+                                  ts_ms=ts, now_s=agora)
+        est = fr.get_estimador("wc-02_m")
+        assert est.quarentena == set()
+        assert "fundo" in est.primeiro_desvio_ts   # desvio em acompanhamento
+
+    def test_remover_quarentena_exige_e_regista_utilizador(self):
+        """PROIBIDO sair de quarentena sem registo: utilizador obrigatório e
+        decision_log (tipo=quarentena_removida, origem=operador) sempre."""
+        from app.services import decision_log
+        est = fr.get_estimador("wc-03_m")
+        est.quarentena.add("fundo")
+        # sem utilizador → recusado e o nó continua em quarentena
+        with pytest.raises(ValueError):
+            fr.remover_quarentena("wc-03_m", "fundo", "")
+        with pytest.raises(ValueError):
+            fr.remover_quarentena("wc-03_m", "fundo", "   ")
+        assert "fundo" in est.quarentena
+        assert decision_log.query(tipo="quarentena_removida") == []
+        # com utilizador → remove E regista
+        out = fr.remover_quarentena("wc-03_m", "fundo", "matheus")
+        assert out["removido"] is True
+        assert "fundo" not in est.quarentena
+        regs = decision_log.query(tipo="quarentena_removida")
+        assert len(regs) == 1
+        assert regs[0]["utilizador"] == "matheus"
+        assert regs[0]["origem"] == "operador"
+        assert regs[0]["seccao"] == "wc-03_m"
+
+    def test_quarentena_persiste_no_snapshot(self):
+        est = fr.get_estimador("wc-04_m")
+        est.quarentena.add("meio")
+        estado = est.to_dict()
+        fr.reset()
+        est2 = fr.get_estimador("wc-04_m")
+        est2.restore(estado)
+        assert "meio" in est2.quarentena
+
+    def test_ts_futuro_nao_contamina_e_aparece_em_ts_suspeitos(self):
+        """Nó/âncora com relógio 10 min no futuro: aceite, marcado, NÃO funde
+        — a regressão e a ocupação ficam intactas até chegar ts são."""
+        # estado são: 2 nós + âncora fresca
+        for pos in ("porta", "meio"):
+            fr.ingest_wifi_bandas("wc-07", "m", pos, 10, 0,
+                                  ts_ms=T0_MS, now_s=T0)
+        fr.ingest_cabecas("wc-07", "m", 20, fonte="prosegur",
+                          ts_ms=T0_MS + 1000, now_s=T0 + 1.0)
+        est = fr.get_estimador("wc-07_m")
+        pares_antes = len(est.regressao.pares)
+        occ_antes = est.ocupacao
+        # nó com ts 10 min no futuro → marcado, fora da mediana, occ intacta
+        p = fr.ingest_wifi_bandas("wc-07", "m", "fundo", 400, 0,
+                                  ts_ms=T0_MS + 600_000, now_s=T0 + 1.0)
+        assert est.nos["fundo"]["ts_suspeito"] is True
+        assert "fundo" in p["ts_suspeitos"]
+        assert est.wifi_zona(T0 + 1.0, "macs_A") == pytest.approx(10.0)
+        assert est.ocupacao == pytest.approx(occ_antes, abs=0.1)
+        assert len(est.regressao.pares) == pares_antes
+        # âncora com ts 10 min no futuro → não cria par nem re-baseia
+        p = fr.ingest_cabecas("wc-07", "m", 999, fonte="luxonis",
+                              ts_ms=T0_MS + 600_000, now_s=T0 + 2.0)
+        assert len(est.regressao.pares) == pares_antes
+        assert est.c_ultima == 20.0
+        assert est.ocupacao == pytest.approx(occ_antes, abs=0.1)
+        assert "ancora" in p["ts_suspeitos"] and "fundo" in p["ts_suspeitos"]
+        # chega ts são → o nó volta a fundir e sai de ts_suspeitos
+        fr.ingest_wifi_bandas("wc-07", "m", "fundo", 12, 0,
+                              ts_ms=T0_MS + 120_000, now_s=T0 + 120.0)
+        assert est.nos["fundo"]["ts_suspeito"] is False
+        p = fr.get_section_payload("wc-07_m", now_s=T0 + 120.0)
+        assert "fundo" not in p["ts_suspeitos"]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Idempotência do ingest
 # ─────────────────────────────────────────────────────────────────────────────
 class TestIdempotencia:
     def test_mesmo_no_mesmo_ts_conta_uma_vez(self):
-        fr.ingest_cabecas("wc-01", "m", 10, ts_ms=T0_MS)
+        fr.ingest_cabecas("wc-01", "m", 10, ts_ms=T0_MS, now_s=T0)
         p1 = fr.ingest_wifi_bandas("wc-01", "m", "porta", 50, 5,
-                                   ts_ms=T0_MS + 60_000)
+                                   ts_ms=T0_MS + 60_000, now_s=T0 + 60.0)
         est = fr.get_estimador("wc-01_m")
         hist_len = len(est.historia)
         # repetição exacta (mesmo nó + mesmo ts) é ignorada por inteiro
         p2 = fr.ingest_wifi_bandas("wc-01", "m", "porta", 50, 5,
-                                   ts_ms=T0_MS + 60_000)
+                                   ts_ms=T0_MS + 60_000, now_s=T0 + 60.0)
         assert len(est.historia) == hist_len
         assert p2["ocupacao"] == p1["ocupacao"]

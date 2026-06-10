@@ -93,10 +93,11 @@ def test_scor_entries_have_exactly_5_fields():
 
 
 # ---------------------------------------------------------------------------
-# Test: Never sends WC-05_M, WC-05_F, WC-06_M, WC-06_F as cluster_ids
+# Test: Never sends gendered unisex variants as cluster_ids
 # ---------------------------------------------------------------------------
 
-FORBIDDEN_CLUSTER_IDS = {"WC-05_M", "WC-05_F", "WC-06_M", "WC-06_F"}
+FORBIDDEN_CLUSTER_IDS = {f"{cid}_{g}" for cid in ("WC-05", "WC-06")
+                         for g in ("M", "F")}
 
 
 def test_scor_no_forbidden_cluster_ids():

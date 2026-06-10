@@ -106,6 +106,7 @@ def demo_tick(now_s: float | None = None) -> int:
                 sec["cluster_id"], sec["secao"], node_id,
                 int(round(macs_a)), int(round(macs_b)),
                 ts_ms=int(t * 1000), origem="simulado",
+                now_s=t,   # ts sintético: o "agora" da chamada é o próprio t
             )
 
         # contagem de cabeças periódica (âncora) — fontes alternadas
@@ -116,6 +117,7 @@ def demo_tick(now_s: float | None = None) -> int:
                 sec["cluster_id"], sec["secao"],
                 int(round(cabecas)), fonte=fonte,
                 ts_ms=int(t * 1000), origem="simulado",
+                now_s=t,   # ts sintético: o "agora" da chamada é o próprio t
             )
         fed += 1
     return fed

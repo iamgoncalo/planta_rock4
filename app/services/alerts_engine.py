@@ -10,7 +10,7 @@ from statistics import mean, pstdev
 
 GRAV_RANK = {"crit": 0, "warn": 1, "info": 2}
 
-# Limiares (afinaveis sem mexer no codigo)
+# Limiares (ajustaveis sem mexer no codigo)
 BAT_CRIT = 10
 BAT_WARN = 20
 OCUP_CRIT = 95

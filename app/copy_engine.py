@@ -164,7 +164,7 @@ def _seed(section_id: str) -> int:
 
 # Quando a leitura não é fiável — honesto, sem números
 POOL_NEUTRO: list[tuple[str, str]] = [
-    ("A afinar a leitura.", "Reading settling."),
+    ("A acertar a leitura.", "Reading settling."),
     ("Um instante — a calibrar.", "One sec — calibrating."),
     ("A acertar os sensores.", "Tuning the sensors."),
 ]

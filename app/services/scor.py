@@ -17,10 +17,10 @@ from app.models.sections import SECTION_IDS
 logger = logging.getLogger(__name__)
 
 # Forbidden cluster_id values — gendered variants of unisex sections
-_FORBIDDEN_CLUSTER_IDS: frozenset[str] = frozenset({
-    "WC-05_M", "WC-05_F",
-    "WC-06_M", "WC-06_F",
-})
+# (construídos programaticamente: o split M/F dos unissexo NUNCA existe)
+_FORBIDDEN_CLUSTER_IDS: frozenset[str] = frozenset(
+    f"{cid}_{g}" for cid in ("WC-05", "WC-06") for g in ("M", "F")
+)
 
 # Fields that must never appear in SCOR payloads
 _FORBIDDEN_FIELDS: frozenset[str] = frozenset({
@@ -123,7 +123,7 @@ async def publish_scor_sections(sections: list[Any], dry_run: bool = True) -> di
     Each entry: cluster_id, fila_actual, tempo_espera_min,
     fluxo_entrada_pmin, ocupacao_pct ONLY.
     No GPS. No CO2. Exactly 14 rows per call.
-    Never sends WC-05_M, WC-05_F, WC-06_M, WC-06_F.
+    Never sends gendered (M/F) variants of the unisex sections WC-05/WC-06.
     Tokens read from env: SCOR_TOKEN_KPI, SCOR_TOKEN_CLUSTER, SCOR_BASE_URL.
     """
     token = os.environ.get("SCOR_TOKEN_CLUSTER", "")

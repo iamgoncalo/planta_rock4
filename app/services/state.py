@@ -201,6 +201,14 @@ def get_live_payload() -> LivePayload:
     except Exception:
         pass  # a fusão rolante nunca pode derrubar o /state
 
+    # Flags de ambiente (chuva/calor/vento) — informativo, nunca parte o /state
+    ambiente_estado: Optional[dict] = None
+    try:
+        from app.services import ambiente
+        ambiente_estado = ambiente.estado_resumo()
+    except Exception:
+        ambiente_estado = None
+
     # Compute KPIs
     total = len(sections)
     avg_occ = sum(s.ocupacao_pct for s in sections) / total if total else 0.0
@@ -226,6 +234,7 @@ def get_live_payload() -> LivePayload:
         alerts=alert_msgs,
         last_tick_age_s=round(time.time() - _TICK_TS, 1),
         any_simulated=any_sim,
+        ambiente=ambiente_estado,
     )
     _PAYLOAD_CACHE["data"] = result
     _PAYLOAD_CACHE["ts"] = now

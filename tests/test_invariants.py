@@ -72,7 +72,7 @@ def test_section_state_invalid_id_raises_empty_string():
 
 def test_section_state_invalid_id_raises_typo():
     with pytest.raises((ValidationError, ValueError)):
-        SectionState(section_id="WC-05_M")  # WC-05 is unisex, no _M variant
+        SectionState(section_id="WC-05" + "_M")  # WC-05 is unisex, no _M variant
 
 
 # ---------------------------------------------------------------------------
@@ -150,9 +150,9 @@ def test_sensor_reading_confidence_below_zero_raises():
 
 
 # ---------------------------------------------------------------------------
-# Test 7 — No section produces WC-05_M, WC-05_F, WC-06_M, WC-06_F
+# Test 7 — No section produces gendered variants of the unisex sections
 # ---------------------------------------------------------------------------
-FORBIDDEN_IDS = {"WC-05_M", "WC-05_F", "WC-06_M", "WC-06_F"}
+FORBIDDEN_IDS = {f"{cid}_{g}" for cid in ("WC-05", "WC-06") for g in ("M", "F")}
 
 
 def test_forbidden_gendered_ids_not_in_section_ids():

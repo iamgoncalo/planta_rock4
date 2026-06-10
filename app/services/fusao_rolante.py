@@ -60,6 +60,23 @@ PESO_C1, PESO_C2, PESO_C3 = 0.45, 0.35, 0.20
 HISTORIA_MAX = 720                # pontos de memória por secção (~12h a 1/min)
 HISTORIA_SNAPSHOT = 240           # pontos persistidos no snapshot Postgres
 
+# Congestão "parada vs a fluir" (multidão parada ≠ fila a fluir)
+CONGESTAO_OCUP_RATIO = 0.75       # ocupação > 0.75×capacidade…
+CONGESTAO_PONTOS_MIN = 5          # …em ≥5 pontos de história…
+CONGESTAO_DELTA_MAX = 1.0         # …com |delta ocupação| médio < 1.0/ponto
+
+# Guarda de transição da flag de congestão (section_id -> última flag)
+_CONGESTAO_PREV: dict[str, bool] = {}
+
+# QUARENTENA DE NÓ (S24 — sensor a mentir)
+QUARENTENA_Z = 3.0                      # |z| robusto acima do qual a leitura desvia
+QUARENTENA_PERSISTENCIA_S = 10 * 60.0   # desvio mantido >= 10 min → quarentena
+MAD_ESCALA = 1.4826                     # consistência MAD → desvio robusto
+QUARENTENA_MIN_NOS = 3                  # mediana/MAD robustos exigem >= 3 nós
+
+# TS_SUSPEITO (S25 — relógio errado)
+TS_SKEW_MAX_S = 300.0             # |ts - agora| > 5 min → marca, não funde
+
 # Posições canónicas dos nós WiFi (define nós_totais por secção)
 POSICOES_MF = ("porta", "meio", "fundo")   # 3 por secção M/F
 POSICOES_UNI = ("porta", "fundo")          # 2 por cluster unissexo
@@ -234,6 +251,13 @@ class EstimadorSeccao:
     # MEMÓRIA — série temporal da secção (ts, ocupacao, fila, conf, a, nos, anom)
     historia: deque = field(default_factory=lambda: deque(maxlen=HISTORIA_MAX))
 
+    # QUARENTENA (S24) — nós com leitura persistentemente fora da mediana
+    quarentena: set = field(default_factory=set)
+    primeiro_desvio_ts: dict = field(default_factory=dict)   # nó -> ts do 1º desvio
+
+    # TS_SUSPEITO (S25) — última âncora chegou com relógio errado
+    ancora_ts_suspeita: bool = False
+
     def __post_init__(self) -> None:
         if self.regressao is None:
             a0 = A0_INTERIOR if is_interior_fechado(self.cluster_id) else A0_EXTERIOR
@@ -244,10 +268,16 @@ class EstimadorSeccao:
         return {nid: rec for nid, rec in self.nos.items()
                 if now_s - rec["ts"] <= NO_TTL_S}
 
+    def _nos_validos(self, now_s: float) -> dict[str, dict]:
+        """Nós online que PODEM fundir: fora de quarentena e com ts são."""
+        return {nid: rec for nid, rec in self._nos_online(now_s).items()
+                if nid not in self.quarentena and not rec.get("ts_suspeito")}
+
     def wifi_zona(self, now_s: float, banda: str) -> Optional[float]:
-        """Mediana(nó_i / k_i) sobre os nós online. None se 0 nós."""
+        """Mediana(nó_i / k_i) sobre os nós online válidos (sem quarentena,
+        sem ts suspeito). None se 0 nós."""
         from app.services import node_calibration as _cal
-        online = self._nos_online(now_s)
+        online = self._nos_validos(now_s)
         if not online:
             return None
         vals = []
@@ -256,24 +286,73 @@ class EstimadorSeccao:
             vals.append(float(rec.get(banda, 0)) / max(k, _EPS))
         return float(median(vals))
 
+    # — quarentena de nó (S24: sensor a mentir) —
+    def _verifica_quarentena(self, now_s: float) -> None:
+        """Nó cuja leitura macs_A normalizada (nó/k) está persistentemente fora
+        da mediana da secção (|z| > 3, desvio robusto 1.4826×MAD) durante
+        >= 10 min entra em quarentena e sai da agregação wifi_zona."""
+        from app.services import node_calibration as _cal
+        validos = self._nos_validos(now_s)
+        if len(validos) < QUARENTENA_MIN_NOS:
+            return
+        norm = {nid: float(rec.get("macs_A", 0)) / max(_cal.get_k(nid), _EPS)
+                for nid, rec in validos.items()}
+        med = float(median(norm.values()))
+        mad = float(median(abs(v - med) for v in norm.values()))
+        desvio = max(MAD_ESCALA * mad, _EPS)        # protegido — nunca /0
+        for nid, v in norm.items():
+            z = abs(v - med) / desvio
+            if z <= QUARENTENA_Z:
+                self.primeiro_desvio_ts.pop(nid, None)
+                continue
+            primeiro = self.primeiro_desvio_ts.setdefault(nid, float(now_s))
+            if now_s - primeiro >= QUARENTENA_PERSISTENCIA_S:
+                self.quarentena.add(nid)
+                self.primeiro_desvio_ts.pop(nid, None)
+                from app.services import decision_log
+                decision_log.log(
+                    tipo="quarentena_no", origem="motor",
+                    seccao=self.section_id,
+                    depois={"no": nid, "z": round(z, 2)},
+                    justificacao="leitura persistentemente fora da mediana "
+                                 "(z>3 por 10 min)",
+                )
+
     # — ingestão —
     def ingest_wifi(self, no: str, macs_a: int, macs_b: int, ts_s: float,
-                    origem: str = "real") -> None:
+                    origem: str = "real",
+                    now_s: Optional[float] = None) -> None:
+        now_s = float(now_s) if now_s is not None else time.time()
         # IDEMPOTENTE: o mesmo nó com o mesmo ts não conta duas vezes
         existente = self.nos.get(no)
         if existente is not None and existente.get("ts") == float(ts_s):
             return
+        # TS_SUSPEITO (S25): relógio do nó desviado > 5 min do "agora" da
+        # chamada — aceita o POST, marca o nó e NÃO funde até chegar ts são
+        suspeito = abs(float(ts_s) - now_s) > TS_SKEW_MAX_S
         self.nos[no] = {"macs_A": max(0, int(macs_a)),
                         "macs_B": max(0, int(macs_b)),
-                        "ts": float(ts_s)}
+                        "ts": float(ts_s),
+                        "ts_suspeito": suspeito}
+        if suspeito:
+            return
         self.tem_dados = True
         self.origem = origem
+        self._verifica_quarentena(ts_s)
         self._recompute(ts_s)
         self._memorize(ts_s)
 
     def ingest_cabecas(self, cabecas: float, fonte: str, ts_s: float,
-                       origem: str = "real") -> None:
+                       origem: str = "real",
+                       now_s: Optional[float] = None) -> None:
+        now_s = float(now_s) if now_s is not None else time.time()
         cabecas = max(0.0, float(cabecas))
+        # TS_SUSPEITO (S25): âncora com relógio errado é aceite mas NÃO cria
+        # par (w, c) nem re-baseia a ocupação — fica só marcada no payload
+        if abs(float(ts_s) - now_s) > TS_SKEW_MAX_S:
+            self.ancora_ts_suspeita = True
+            return
+        self.ancora_ts_suspeita = False
         w = self.wifi_zona(ts_s, "macs_A")
         if w is not None:
             self.regressao.add_pair(w, cabecas, ts_s)
@@ -376,6 +455,25 @@ class EstimadorSeccao:
             conf = 0.0
         return round(max(0.0, min(1.0, conf)), 3)
 
+    # — congestão parado-vs-fluir —
+    def flag_congestao(self) -> bool:
+        """True quando a secção está cheia (>0.75×cap) E o fluxo está PARADO:
+        últimos ≥5 pontos de história com |delta ocupação| médio <1.0/ponto
+        e ocupação média >0.75×cap. Multidão parada ≠ fila a fluir."""
+        cap = max(float(self.capacidade), _EPS)
+        ocup = float(self.ocupacao) if self.ocupacao is not None else 0.0
+        if ocup / cap <= CONGESTAO_OCUP_RATIO:
+            return False
+        pts = list(self.historia)[-CONGESTAO_PONTOS_MIN:]
+        if len(pts) < CONGESTAO_PONTOS_MIN:
+            return False
+        occs = [float(p.get("ocupacao") or 0.0) for p in pts]
+        deltas = [abs(occs[i + 1] - occs[i]) for i in range(len(occs) - 1)]
+        delta_medio = sum(deltas) / max(len(deltas), 1)
+        ocup_media = sum(occs) / max(len(occs), 1)
+        return (delta_medio < CONGESTAO_DELTA_MAX
+                and ocup_media > CONGESTAO_OCUP_RATIO * cap)
+
     # — payload de estado —
     def payload(self, now_s: Optional[float] = None) -> dict:
         now_s = now_s if now_s is not None else time.time()
@@ -385,6 +483,21 @@ class EstimadorSeccao:
             self._decay(now_s)
         idade = (round(max(0.0, now_s - self.ts_cabeca), 1)
                  if self.ts_cabeca is not None else None)
+        congestao = self.flag_congestao()
+        # transição False→True vai ao decision_log (uma vez por episódio)
+        if congestao and not _CONGESTAO_PREV.get(self.section_id, False):
+            try:
+                from app.services import decision_log
+                decision_log.log(
+                    tipo="congestao", origem="motor", seccao=self.section_id,
+                    depois={"ocupacao": round(self.ocupacao or 0.0, 1),
+                            "capacidade": self.capacidade},
+                    justificacao="multidão parada >75% da capacidade — "
+                                 "fluxo sem variação em ≥5 pontos",
+                )
+            except Exception:
+                pass
+        _CONGESTAO_PREV[self.section_id] = congestao
         return {
             "cluster_id": self.cluster_id,
             "secao": self.secao,
@@ -401,12 +514,22 @@ class EstimadorSeccao:
             "nos_totais": len(self.posicoes),
             "n_acessos": self.n_acessos,
             "flag_anomalia": bool(self.flag_anomalia),
+            "flag_congestao": congestao,
+            "nos_quarentena": sorted(self.quarentena),
+            "ts_suspeitos": self._ts_suspeitos(),
             "capacidade": self.capacidade,
             "fonte_wifi": "online" if nos_online > 0 else "offline",
             "origem": self.origem,
             "surto_activo": _surge_factor(now_s) > 1.0,
             "pontos_memoria": len(self.historia),
         }
+
+    def _ts_suspeitos(self) -> list[str]:
+        """Ids com relógio suspeito: nós marcados + 'ancora' se for o caso."""
+        ids = [nid for nid, rec in self.nos.items() if rec.get("ts_suspeito")]
+        if self.ancora_ts_suspeita:
+            ids.append("ancora")
+        return sorted(ids)
 
     def history(self, n: int = HISTORIA_MAX) -> list[dict]:
         """Últimos n pontos da série temporal."""
@@ -432,6 +555,9 @@ class EstimadorSeccao:
             "flag_anomalia": self.flag_anomalia,
             "tem_dados": self.tem_dados,
             "origem": self.origem,
+            "quarentena": sorted(self.quarentena),
+            "primeiro_desvio_ts": dict(self.primeiro_desvio_ts),
+            "ancora_ts_suspeita": bool(self.ancora_ts_suspeita),
             "historia": list(self.historia)[-HISTORIA_SNAPSHOT:],
         }
 
@@ -450,6 +576,12 @@ class EstimadorSeccao:
             self.flag_anomalia = bool(d.get("flag_anomalia", False))
             self.tem_dados = bool(d.get("tem_dados", False))
             self.origem = str(d.get("origem") or "real")
+            self.quarentena = {str(n) for n in (d.get("quarentena") or [])}
+            self.primeiro_desvio_ts = {
+                str(k): float(v)
+                for k, v in (d.get("primeiro_desvio_ts") or {}).items()
+            }
+            self.ancora_ts_suspeita = bool(d.get("ancora_ts_suspeita", False))
             self.historia = deque(
                 [dict(p) for p in (d.get("historia") or [])],
                 maxlen=HISTORIA_MAX,
@@ -497,31 +629,68 @@ def get_estimador(section_id: str) -> Optional[EstimadorSeccao]:
 def ingest_wifi_bandas(cluster_id: str, secao: Optional[str], no: str,
                        macs_a: int, macs_b: int,
                        ts_ms: Optional[int] = None,
-                       origem: str = "real") -> Optional[dict]:
-    """Regista um POST WiFi por bandas. Devolve payload da secção ou None."""
+                       origem: str = "real",
+                       now_s: Optional[float] = None) -> Optional[dict]:
+    """Regista um POST WiFi por bandas. Devolve payload da secção ou None.
+    now_s é o "agora" da chamada (default time.time()) — ts desviado > 5 min
+    marca o nó como ts_suspeito (S25) sem o fundir."""
     sid = section_id_for(cluster_id, secao)
     if sid is None:
         return None
-    ts_s = (ts_ms / 1000.0) if ts_ms else time.time()
+    now_ref = float(now_s) if now_s is not None else time.time()
+    ts_s = (ts_ms / 1000.0) if ts_ms else now_ref
     with _LOCK:
         est = _ESTIMADORES[sid]
-        est.ingest_wifi(str(no), macs_a, macs_b, ts_s, origem=origem)
-        return est.payload(ts_s)
+        est.ingest_wifi(str(no), macs_a, macs_b, ts_s, origem=origem,
+                        now_s=now_ref)
+        # ts suspeito não pode servir de relógio ao payload
+        ts_pay = ts_s if abs(ts_s - now_ref) <= TS_SKEW_MAX_S else now_ref
+        return est.payload(ts_pay)
 
 
 def ingest_cabecas(cluster_id: str, secao: Optional[str], cabecas: float,
                    fonte: str = "manual",
                    ts_ms: Optional[int] = None,
-                   origem: str = "real") -> Optional[dict]:
-    """Regista uma contagem de cabeças (âncora). Devolve payload ou None."""
+                   origem: str = "real",
+                   now_s: Optional[float] = None) -> Optional[dict]:
+    """Regista uma contagem de cabeças (âncora). Devolve payload ou None.
+    now_s é o "agora" da chamada (default time.time()) — âncora com ts
+    desviado > 5 min é aceite mas não re-baseia nem cria par (S25)."""
     sid = section_id_for(cluster_id, secao)
     if sid is None:
         return None
-    ts_s = (ts_ms / 1000.0) if ts_ms else time.time()
+    now_ref = float(now_s) if now_s is not None else time.time()
+    ts_s = (ts_ms / 1000.0) if ts_ms else now_ref
     with _LOCK:
         est = _ESTIMADORES[sid]
-        est.ingest_cabecas(cabecas, fonte, ts_s, origem=origem)
-        return est.payload(ts_s)
+        est.ingest_cabecas(cabecas, fonte, ts_s, origem=origem, now_s=now_ref)
+        ts_pay = ts_s if abs(ts_s - now_ref) <= TS_SKEW_MAX_S else now_ref
+        return est.payload(ts_pay)
+
+
+def remover_quarentena(section_id: str, no: str, utilizador: str) -> dict:
+    """Tira um nó de quarentena (S24). PROIBIDO sem registo: exige utilizador
+    e fica sempre no decision_log (origem=operador)."""
+    if not utilizador or not str(utilizador).strip():
+        raise ValueError("remover_quarentena exige utilizador — operação auditada")
+    est = get_estimador(section_id)
+    if est is None:
+        raise ValueError(f"secção desconhecida: {section_id!r}")
+    no = str(no)
+    with _LOCK:
+        estava = no in est.quarentena
+        est.quarentena.discard(no)
+        est.primeiro_desvio_ts.pop(no, None)
+    from app.services import decision_log
+    decision_log.log(
+        tipo="quarentena_removida", origem="operador",
+        utilizador=str(utilizador).strip(), seccao=est.section_id,
+        antes={"no": no, "quarentena": estava},
+        depois={"no": no, "quarentena": False},
+        justificacao="remoção manual de quarentena pelo operador",
+    )
+    return {"section_id": est.section_id, "no": no, "removido": estava,
+            "nos_quarentena": sorted(est.quarentena)}
 
 
 def get_section_detail(section_id: str, n_history: int = 240,
@@ -589,13 +758,27 @@ def get_all(now_s: Optional[float] = None) -> dict[str, dict]:
 
 def reset() -> None:
     """Limpa todo o estado (usado em testes)."""
+    global _PG_EM_FALHA
     with _LOCK:
         _ESTIMADORES.clear()
+        _CONGESTAO_PREV.clear()
+        _PENDENTES.clear()
+        _PG_EM_FALHA = False
 
 
 # ── Snapshot Postgres (mesmo padrão do ingest_store) ────────────────────────
+# BUFFER LOCAL (S13): se o Postgres cair, os snapshots ficam aqui em anel e
+# são reconciliados na próxima persistência bem-sucedida.
+_PENDENTES: deque = deque(maxlen=30)    # {"ts": s, "snap": {sid: estado}}
+_PG_EM_FALHA = False                    # já estamos em modo degradado?
+
+
 async def _persist_snapshot(session_factory) -> None:
-    """Persiste o estado das secções em fusao_rolante_snapshots. Silencia erros."""
+    """Persiste o estado das secções em fusao_rolante_snapshots. Se o Postgres
+    cair, guarda o snap em _PENDENTES (S13) e regista modo_degradado UMA vez
+    (só na transição para falha)."""
+    global _PG_EM_FALHA
+    snap: dict = {}
     try:
         from app.models.db.operations import FusaoRolanteSnapshot
 
@@ -603,6 +786,9 @@ async def _persist_snapshot(session_factory) -> None:
             snap = {sid: est.to_dict() for sid, est in _ESTIMADORES.items()
                     if est.tem_dados}
 
+        if not snap and _PENDENTES:
+            # nada novo em memória mas há buffer: reconcilia o mais recente
+            snap = max(_PENDENTES, key=lambda p: p["ts"])["snap"]
         if not snap:
             return
         async with session_factory() as session:
@@ -617,12 +803,37 @@ async def _persist_snapshot(session_factory) -> None:
                         section_id=sid, state_json=state, ts_server=now_ms,
                     ))
             await session.commit()
+        # sucesso: o snap escrito é o mais recente — buffer reconciliado
+        if _PENDENTES:
+            _PENDENTES.clear()
+            _logger.info("fusao_rolante: buffer local reconciliado no Postgres")
+        _PG_EM_FALHA = False
     except Exception as exc:
-        _logger.debug("fusao_rolante snapshot erro (ignorado): %s", exc)
+        if snap:
+            _PENDENTES.append({"ts": time.time(), "snap": snap})
+        if not _PG_EM_FALHA:
+            # decision_log apenas na TRANSIÇÃO para falha — não a cada tentativa
+            _PG_EM_FALHA = True
+            try:
+                from app.services import decision_log
+                decision_log.log(
+                    tipo="modo_degradado", origem="motor",
+                    justificacao="Postgres indisponível — snapshot em buffer local",
+                )
+            except Exception:
+                pass
+        _logger.debug("fusao_rolante snapshot erro (buffer local): %s", exc)
 
 
 async def _load_snapshot(session_factory) -> None:
-    """Ao iniciar, recarrega o estado a partir de fusao_rolante_snapshots."""
+    """Ao iniciar, recarrega o estado a partir de fusao_rolante_snapshots.
+
+    MEMÓRIA ENTRE DIAS (S23): snapshots antigos (>24h) NÃO são descartados —
+    restauram-se SEMPRE por inteiro. Os pares (w, c) com mais de 3 horas
+    expiram naturalmente na próxima add_pair (janela rolante), mas o a/b/r2
+    aprendidos FICAM: o dia 3 do festival arranca com o declive calibrado
+    nos dias 1 e 2, em vez de voltar ao a0 por defeito.
+    """
     try:
         from sqlalchemy import select as _select
         from app.models.db.operations import FusaoRolanteSnapshot

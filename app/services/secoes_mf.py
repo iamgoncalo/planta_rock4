@@ -35,6 +35,8 @@ WC05_BLOQUEIO = 0.85
 _LOCK = threading.Lock()
 # cluster_id -> {"fechado": bool, "por": str, "ts_ms": int, "justificacao": str}
 _FECHADOS: dict[str, dict] = {}
+# section_id -> {"em_limpeza": bool, "eta_min": int, "por": str, "ts_ms": int}
+_LIMPEZA: dict[str, dict] = {}
 
 
 def section_ids() -> list[str]:
@@ -74,11 +76,17 @@ def queue_cap(section_id: str) -> float:
 
 
 def servico_pmin(section_id: str) -> float:
-    """Débito da secção (pessoas/min). 0 se o cluster estiver fechado."""
+    """Débito da secção (pessoas/min). 0 se fechado OU em limpeza.
+    Com chuva activa o dwell sobe ×ambiente.dwell_factor() (S01)."""
     cid, sec = _split(section_id)
-    if is_fechado(cid):
+    if is_fechado(cid) or is_em_limpeza(section_id):
         return 0.0
     dwell = DWELL_MIN.get(sec, DWELL_MIN["u"])
+    try:
+        from app.services import ambiente
+        dwell *= ambiente.dwell_factor()
+    except Exception:
+        pass   # sem módulo de ambiente ⇒ factor 1.0
     return posicoes(section_id) / max(dwell, 0.001)
 
 
@@ -91,9 +99,10 @@ def espera_prevista_min(section_id: str, fila: float) -> float:
 
 
 def alerta_fila(section_id: str, fila: float) -> Optional[str]:
-    """WARN >0.7 · CRIT >0.95 da queue_cap. CRIT imediato se fechado."""
+    """WARN >0.7 · CRIT >0.95 da queue_cap. CRIT imediato se fechado
+    ou em limpeza."""
     cid, _ = _split(section_id)
-    if is_fechado(cid):
+    if is_fechado(cid) or is_em_limpeza(section_id):
         return "CRIT"
     qc = max(queue_cap(section_id), 0.001)
     r = max(0.0, float(fila)) / qc
@@ -112,12 +121,13 @@ def wc05_bloquear_steward(interior: float, fila: float) -> bool:
 
 
 def seccoes_permitidas(genero: str) -> list[str]:
-    """F vê F+unissexo · M vê M+unissexo. NUNCA cruzar."""
+    """F vê F+unissexo · M vê M+unissexo. NUNCA cruzar.
+    Secção em limpeza sai SOZINHA (não arrasta a irmã do mesmo cluster)."""
     g = (genero or "").strip().lower()[:1]
     out = []
     for sid in section_ids():
         cid, sec = _split(sid)
-        if is_fechado(cid):
+        if is_fechado(cid) or is_em_limpeza(sid):
             continue
         if sec == "u" or (g == "f" and sec == "f") or (g == "m" and sec == "m"):
             out.append(sid)
@@ -157,6 +167,41 @@ def set_fechado(cluster_id: str, fechado: bool, utilizador: str,
     return dict(rec)
 
 
+# ── secção em limpeza (estado POR SECÇÃO, auditado) ─────────────────────────
+def is_em_limpeza(section_id: str) -> bool:
+    with _LOCK:
+        return bool(_LIMPEZA.get(section_id.lower(), {}).get("em_limpeza"))
+
+
+def estado_limpezas() -> dict[str, dict]:
+    with _LOCK:
+        return {k: dict(v) for k, v in _LIMPEZA.items()}
+
+
+def set_limpeza(section_id: str, em_limpeza: bool, eta_min: int,
+                utilizador: str, justificacao: str = "") -> dict:
+    """Marca/desmarca UMA secção em limpeza (WC-04_F em limpeza NÃO afecta
+    WC-04_M). SEMPRE auditado no decision_log."""
+    sid = section_id.lower()
+    ts_ms = int(time.time() * 1000)
+    with _LOCK:
+        antes = dict(_LIMPEZA.get(sid, {"em_limpeza": False}))
+        rec = {"em_limpeza": bool(em_limpeza),
+               "eta_min": max(0, int(eta_min or 0)),
+               "por": utilizador, "ts_ms": ts_ms}
+        _LIMPEZA[sid] = rec
+    try:
+        from app.services import decision_log
+        decision_log.log(
+            tipo="seccao_limpeza" if em_limpeza else "seccao_reaberta",
+            origem="operador", utilizador=utilizador, seccao=sid,
+            antes=antes, depois=dict(rec), justificacao=justificacao,
+        )
+    except Exception:
+        pass
+    return dict(rec)
+
+
 def recusas_estimadas() -> dict:
     """Pessoas sem fila disponível: excesso sobre queue_cap nas secções abertas
     + fila inteira das fechadas. Por género e total."""
@@ -182,6 +227,7 @@ def recusas_estimadas() -> dict:
 
 
 def reset() -> None:
-    """Limpa fechados (testes)."""
+    """Limpa fechados e limpezas (testes)."""
     with _LOCK:
         _FECHADOS.clear()
+        _LIMPEZA.clear()

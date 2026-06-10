@@ -91,3 +91,5 @@ class LivePayload(BaseModel):
     alerts: list[str] = []
     last_tick_age_s: float = 0.0
     any_simulated: bool = True
+    # Flags de ambiente (chuva/calor/vento) — opcional, nunca parte o /state
+    ambiente: Optional[dict] = None

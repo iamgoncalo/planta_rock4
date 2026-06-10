@@ -46,6 +46,7 @@ from app.routers.history import router as history_router
 from app.routers.route_leve import router as route_leve_router
 from app.routers.intelligence import router as intelligence_router
 from app.routers.flow import router as flow_router
+from app.routers.ambiente import router as ambiente_router
 from app.routers.screen import router as screen_router
 
 logger = logging.getLogger(__name__)
@@ -180,6 +181,9 @@ def create_app() -> FastAPI:
 
     # Legacy routers (no /api prefix, kept for backwards compat)
     app.include_router(health_router)
+    # route_leve ANTES de sections: a rota literal /api/v1/sections/estado
+    # tem de vencer a paramétrica /api/v1/sections/{section_id}
+    app.include_router(route_leve_router)
     app.include_router(sections_router)
 
     # All new routers are prefixed under /api
@@ -204,9 +208,9 @@ def create_app() -> FastAPI:
     app.include_router(fusion_router)
     app.include_router(calibration_router)
     app.include_router(history_router)
-    app.include_router(route_leve_router)
     app.include_router(intelligence_router)
     app.include_router(flow_router)
+    app.include_router(ambiente_router)
     app.include_router(screen_router)
     app.include_router(cleaning_router)  # unificado (U2)
     app.include_router(staff_router)
