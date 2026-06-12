@@ -268,6 +268,29 @@ def test_restore_rejeita_snapshot_de_versao_antiga():
         fusao_rolante.reset()
 
 
+def test_ocupacao_instantanea_arredondamento_unico():
+    """Regressão (apanhado em produção): 100×85/126 = 67.46 tem de dar 67.
+    Com paragem intermédia a 1 casa decimal dava 67.5 → 68 (dupla
+    arredondagem) e divergia 1pp da relação round(100×Σabs/cap)."""
+    from app.services.cluster_telemetry import build_cluster_payload
+    state = {"sections": [
+        {"section_id": "WC-02_M", "gender": "M", "ocupacao_pct": 50.0,
+         "ocupacao_abs": 40, "fila_atual": 0, "tempo_espera_min": 0.0,
+         "fluxo_entrada_pmin": 0.0, "status": "normal", "simulated": True},
+        {"section_id": "WC-02_F", "gender": "F", "ocupacao_pct": 60.0,
+         "ocupacao_abs": 45, "fila_atual": 0, "tempo_espera_min": 0.0,
+         "fluxo_entrada_pmin": 0.0, "status": "normal", "simulated": True},
+    ]}
+    wc02 = next(c for c in build_cluster_payload(state)
+                if c["cluster_id"] == "wc-02")
+    p = wc02["params"]
+    assert p["pessoas_estimadas"] == 85
+    # 100×85/126 = 67.46 → arredondamento ÚNICO = 67 (nunca 68)
+    assert p["ocupacao_instantanea"] == 67, (
+        f"dupla arredondagem: occ={p['ocupacao_instantanea']} (esperado 67)"
+    )
+
+
 def test_health_devolve_git_sha(client: TestClient):
     """Bónus: /health devolve git_sha (RAILWAY_GIT_COMMIT_SHA ou 'dev')."""
     r = client.get("/api/v1/health")

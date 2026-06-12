@@ -122,8 +122,10 @@ def build_cluster_payload(state: dict[str, Any] | None) -> list[dict[str, Any]]:
         cap_total = CLUSTER_CAPACITY.get(cid, 0)
         pessoas = int(a["pessoas"])
         # Ocupação % derivada dos MESMOS abs (ponderada pela capacidade) —
-        # Σ ocupacao_abs do /flow e este campo ficam coerentes por construção
-        occ_pct = (round(min(100.0, 100.0 * pessoas / cap_total), 1)
+        # Σ ocupacao_abs do /flow e este campo ficam coerentes por construção.
+        # ARREDONDAMENTO ÚNICO: sem paragem intermédia a 1 casa decimal —
+        # 67.46 → (1dp) 67.5 → (int) 68 divergia da arredondagem directa (67).
+        occ_pct = (min(100.0, 100.0 * pessoas / cap_total)
                    if cap_total > 0 else 0.0)
 
         # Estado do sensor — derivado do contexto
