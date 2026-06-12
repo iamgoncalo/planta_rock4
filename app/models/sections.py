@@ -87,6 +87,8 @@ class GlobalKPIs(BaseModel):
     critical_sections: int = 0
     redirected_count: int = 0
     any_simulated: bool = True
+    # carimbo (ms) do snapshot único do tick — igual em TODOS os endpoints
+    snapshot_ts: Optional[int] = None
 
 
 class LivePayload(BaseModel):
@@ -97,3 +99,5 @@ class LivePayload(BaseModel):
     any_simulated: bool = True
     # Flags de ambiente (chuva/calor/vento) — opcional, nunca parte o /state
     ambiente: Optional[dict] = None
+    # carimbo (ms) do snapshot único do tick — igual em TODOS os endpoints
+    snapshot_ts: int = 0

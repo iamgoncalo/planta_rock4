@@ -43,7 +43,8 @@ export default function V3Home() {
   // Cluster com maior ocupação → destaque rosa (1 por ecrã)
   const peakCluster = clusters.length > 0
     ? clusters.reduce((a, b) =>
-        (b.params?.ocupacao_instantanea ?? 0) > (a.params?.ocupacao_instantanea ?? 0) ? b : a,
+        (b.params?.ocupacao_pct ?? b.params?.ocupacao_instantanea ?? 0) >
+        (a.params?.ocupacao_pct ?? a.params?.ocupacao_instantanea ?? 0) ? b : a,
       )
     : null;
 
@@ -96,7 +97,7 @@ export default function V3Home() {
               </div>
             ))
           : clusters.map((c) => {
-              const occ = c.params?.ocupacao_instantanea ?? 0;
+              const occ = c.params?.ocupacao_pct ?? c.params?.ocupacao_instantanea ?? 0;
               const fila = c.params?.fila_atual ?? 0;
               const pessoas = c.params?.pessoas_estimadas ?? 0;
               const isPeak = peakCluster?.cluster_id === c.cluster_id && occ > 0;

@@ -14,3 +14,5 @@ class TVScreenState(BaseModel):
     critical_override: bool
     last_update_ts: float
     any_simulated: bool
+    # carimbo (ms) do snapshot único do tick — igual em TODOS os endpoints
+    snapshot_ts: Optional[int] = None

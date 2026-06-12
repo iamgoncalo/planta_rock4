@@ -34,11 +34,12 @@ const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000];
 export interface ClusterParams {
   telemoveis_detectados: number;
   pessoas_estimadas: number;
-  homens: number | null;
-  mulheres: number | null;
+  homens?: number | null;       // AUSENTE em wc-05/wc-06 (unissexo)
+  mulheres?: number | null;     // AUSENTE em wc-05/wc-06
   entradas_ir: number;
   saidas_ir: number;
-  ocupacao_instantanea: number;
+  ocupacao_instantanea: number; // % == round(100×Σabs/capacidade)
+  ocupacao_pct?: number;        // % a 1dp (mesmos abs)
   contagem_prosegur: number;
   confianca_cruzada: number;
   estado_sensor: string;

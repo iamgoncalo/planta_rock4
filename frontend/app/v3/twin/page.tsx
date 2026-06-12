@@ -113,7 +113,7 @@ export default function TwinPage() {
           {/* Cluster nodes */}
           {geo.clusters.map((gc) => {
             const cl = liveMap[gc.id];
-            const occ = cl?.params?.ocupacao_instantanea ?? 0;
+            const occ = cl?.params?.ocupacao_pct ?? cl?.params?.ocupacao_instantanea ?? 0;
             const colour = occColour(occ);
             const isSelected = selected === gc.id;
             const cy = geo.span_n_m - gc.n_m;
@@ -213,7 +213,7 @@ export default function TwinPage() {
           {selectedCluster ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {[
-                { label: 'Ocupação', value: `${selectedCluster.params?.ocupacao_instantanea ?? 0}%` },
+                { label: 'Ocupação', value: `${selectedCluster.params?.ocupacao_pct ?? selectedCluster.params?.ocupacao_instantanea ?? 0}%` },
                 { label: 'Pessoas', value: selectedCluster.params?.pessoas_estimadas ?? 0 },
                 { label: 'Fila', value: selectedCluster.params?.fila_atual ?? 0 },
                 { label: 'Espera', value: `${selectedCluster.params?.tempo_espera_min ?? 0} min` },
@@ -234,8 +234,8 @@ export default function TwinPage() {
                 <div style={{ marginTop: 6 }}>
                   <div className="v3-bar-track">
                     <div
-                      className={`v3-bar-fill${(selectedCluster.params?.ocupacao_instantanea ?? 0) >= 80 ? ' critical' : ''}`}
-                      style={{ width: `${Math.min(selectedCluster.params?.ocupacao_instantanea ?? 0, 100)}%` }}
+                      className={`v3-bar-fill${(selectedCluster.params?.ocupacao_pct ?? selectedCluster.params?.ocupacao_instantanea ?? 0) >= 80 ? ' critical' : ''}`}
+                      style={{ width: `${Math.min(selectedCluster.params?.ocupacao_pct ?? selectedCluster.params?.ocupacao_instantanea ?? 0, 100)}%` }}
                     />
                   </div>
                 </div>

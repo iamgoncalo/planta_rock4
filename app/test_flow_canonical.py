@@ -46,8 +46,10 @@ def test_flow_and_telemetry_same_occupancy(client: TestClient):
         if t_params is None:
             continue
         flow_avg = round(sum(occs) / len(occs), 1)
-        tele_occ = float(t_params["ocupacao_instantanea"])
-        # tolerância de 5 pp — o telemetry aplica ±3 % de jitter visual
+        # ocupacao_pct é o campo % do telemetry (ocupacao_instantanea = pessoas)
+        tele_occ = float(t_params["ocupacao_pct"])
+        # tolerância de 5 pp: flow_avg é média simples; ocupacao_pct é
+        # ponderada pela capacidade das secções
         if abs(flow_avg - tele_occ) > 5.0:
             mismatches.append(
                 f"{cid}: /flow avg={flow_avg:.1f}% vs /telemetry={tele_occ:.1f}%"
@@ -127,12 +129,10 @@ def test_flow_14_seccoes_abs_coerente_com_pct(client: TestClient):
 
 
 def test_flow_soma_abs_igual_telemetry_exacto(client: TestClient):
-    """b) SNAPSHOT ÚNICO: dois requests (/flow e /telemetry) no mesmo tick →
-    Σ ocupacao_abs por cluster == ocupação instantânea do telemetry EXACTO
-    (não ±1 — os dois endpoints consomem os MESMOS inteiros do snapshot):
-      - em pessoas:  Σ abs == pessoas_estimadas
-      - em percent:  ocupacao_instantanea == round(100 × Σ abs / cap_total)
-    """
+    """a) SNAPSHOT ÚNICO — espelha o portao.sh do CEO, EXACTO (não ±1):
+      - pessoas:  Σ ocupacao_abs == pessoas_estimadas
+      - percent:  ocupacao_instantanea == round(100×Σabs/capacidade_total)
+    Os dois endpoints consomem os MESMOS inteiros do snapshot do tick."""
     _clear_caches()
 
     r_flow = client.get("/api/v1/flow")
@@ -148,17 +148,76 @@ def test_flow_soma_abs_igual_telemetry_exacto(client: TestClient):
     erros = []
     for cid, total in sorted(soma_abs.items()):
         p = tele_by_id[cid]
-        pessoas = int(p["pessoas_estimadas"])
-        if total != pessoas:
-            erros.append(f"{cid}: Σabs={total} != pessoas_estimadas={pessoas}")
+        if total != int(p["pessoas_estimadas"]):
+            erros.append(f"{cid}: Σabs={total} != pessoas_estimadas={p['pessoas_estimadas']}")
         cap_total = int(p["capacidade_total"])
-        occ_esperado = int(round(min(100.0, 100.0 * total / cap_total)))
-        if int(p["ocupacao_instantanea"]) != occ_esperado:
+        # a MESMA expressão do portao.sh: round(100*S[cid]/capacidade_total)
+        if int(p["ocupacao_instantanea"]) != round(100 * total / cap_total):
             erros.append(
                 f"{cid}: ocupacao_instantanea={p['ocupacao_instantanea']} "
-                f"!= round(100×{total}/{cap_total})={occ_esperado}"
+                f"!= round(100×{total}/{cap_total})={round(100 * total / cap_total)}"
             )
+        pct_esperado = round(min(100.0, 100.0 * total / cap_total), 1)
+        if float(p["ocupacao_pct"]) != pct_esperado:
+            erros.append(f"{cid}: ocupacao_pct={p['ocupacao_pct']} != {pct_esperado}")
     assert not erros, "Divergência flow/telemetry no mesmo tick:\n" + "\n".join(erros)
+
+
+def test_snapshot_ts_identico_em_todos_os_endpoints(client: TestClient):
+    """SNAPSHOT PARTILHADO (critério nº1): /flow, /telemetry, /state, /kpis,
+    /tv e /sections devolvem o MESMO snapshot_ts dentro do mesmo tick —
+    prova de que todos leem o mesmo objecto."""
+    _clear_caches()
+    ts_flow = client.get("/api/v1/flow").json()["snapshot_ts"]
+    ts_tele = client.get("/api/v1/telemetry/clusters/now").json()["snapshot_ts"]
+    ts_state = client.get("/api/v1/state").json()["snapshot_ts"]
+    ts_kpis = client.get("/api/v1/kpis").json()["snapshot_ts"]
+    ts_tv = client.get("/api/v1/tv/screen-01").json()["snapshot_ts"]
+    ts_secs = client.get("/api/v1/sections").json()["snapshot_ts"]
+    vistos = {"flow": ts_flow, "telemetry": ts_tele, "state": ts_state,
+              "kpis": ts_kpis, "tv": ts_tv, "sections": ts_secs}
+    assert ts_flow and len(set(vistos.values())) == 1, (
+        f"snapshot_ts diverge entre endpoints: {vistos}"
+    )
+    # e o ts de cada cluster do telemetry é o mesmo carimbo
+    r = client.get("/api/v1/telemetry/clusters/now").json()
+    assert all(c["ts"] == r["snapshot_ts"] for c in r["clusters"]), (
+        "ts por cluster difere do snapshot_ts"
+    )
+
+
+def test_ocupacao_nunca_deriva_de_pessoas_estimadas(client: TestClient):
+    """b) Caso sintético: âncora canónica de 60 pessoas em wc-06 ENQUANTO o
+    ingest recebe pessoas_estimadas=100 (WiFi, dentro+perto). O /flow tem de
+    somar 60 (fusão canónica), NUNCA 100 (input WiFi)."""
+    from app.services import fusao_rolante, ingest_store
+    import time as _t
+    try:
+        # input WiFi a "gritar" 100 — entra na fusão como fonte, nada mais
+        ingest_store.put("wc-06", {"pessoas_estimadas": 100},
+                         int(_t.time() * 1000))
+        # âncora canónica: 60 cabeças dentro (secção única U, sem género)
+        fusao_rolante.ingest_cabecas("wc-06", None, 60.0, fonte="manual")
+        _clear_caches()
+        r_flow = client.get("/api/v1/flow")
+        r_tele = client.get("/api/v1/telemetry/clusters/now")
+        soma = sum(int(s["ocupacao_abs"]) for s in r_flow.json()["secoes"]
+                   if s["cluster_id"] == "wc-06")
+        assert soma == 60, f"/flow wc-06 soma {soma} (esperado 60, nunca 100)"
+        tele = next(c["params"] for c in r_tele.json()["clusters"]
+                    if c["cluster_id"] == "wc-06")
+        assert int(tele["pessoas_estimadas"]) == 60, (
+            f"telemetry wc-06 pessoas_estimadas={tele['pessoas_estimadas']} "
+            "(esperado 60 — pessoas_estimadas WiFi é input de fusão, nunca output)"
+        )
+        # % exacto do portão: round(100×60/208) = 29, nunca round(100×100/208)=48
+        assert int(tele["ocupacao_instantanea"]) == round(100 * 60 / 208), (
+            f"telemetry wc-06 occ%={tele['ocupacao_instantanea']} (esperado 29)"
+        )
+    finally:
+        fusao_rolante.reset()
+        ingest_store._STORE.pop("wc-06", None)
+        _clear_caches()
 
 
 def test_dois_curls_no_mesmo_tick_sao_identicos(client: TestClient):
@@ -289,6 +348,7 @@ def test_ocupacao_instantanea_arredondamento_unico():
     assert p["ocupacao_instantanea"] == 67, (
         f"dupla arredondagem: occ={p['ocupacao_instantanea']} (esperado 67)"
     )
+    assert p["ocupacao_pct"] == 67.5  # % a 1dp para o frontend (mesmos abs)
 
 
 def test_health_devolve_git_sha(client: TestClient):

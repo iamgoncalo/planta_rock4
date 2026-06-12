@@ -14,11 +14,12 @@ interface ClusterPayload {
   params: {
     telemoveis_detectados: number;
     pessoas_estimadas: number;
-    homens: number | null;
-    mulheres: number | null;
+    homens?: number | null;       // AUSENTE em wc-05/wc-06 (unissexo)
+    mulheres?: number | null;     // AUSENTE em wc-05/wc-06
     entradas_ir: number;
     saidas_ir: number;
-    ocupacao_instantanea: number;
+    ocupacao_instantanea: number; // PESSOAS dentro agora (fusão canónica)
+    ocupacao_pct?: number;        // % (mesmos abs / capacidade)
     contagem_prosegur: number;
     confianca_cruzada: number;
     estado_sensor: string;
@@ -103,7 +104,7 @@ function ScorDrawer({ cluster, onClose }: { cluster: ClusterPayload; onClose: ()
   const isUni = UNISEX.has(cluster.cluster_id);
   const estado = p.estado_sensor || 'simulado';
   const stEstado = ESTADO_COLORS[estado] || ESTADO_COLORS.simulado;
-  const occ = p.ocupacao_instantanea;
+  const occ = p.ocupacao_pct ?? p.ocupacao_instantanea;
   const cap = p.capacidade_total || 100;
   const capHalf = cap / 2;
 
@@ -285,7 +286,7 @@ export default function ScorPage() {
             // Actualizar histórico para sparklines
             data.clusters.forEach(c => {
               const h = historyRef.current.get(c.cluster_id) || { occ: [], pessoas: [] };
-              h.occ.push(c.params.ocupacao_instantanea);
+              h.occ.push(c.params.ocupacao_pct ?? c.params.ocupacao_instantanea);
               h.pessoas.push(c.params.pessoas_estimadas);
               if (h.occ.length > 60) h.occ.shift();
               if (h.pessoas.length > 60) h.pessoas.shift();
@@ -536,7 +537,7 @@ function ClusterCard({ cluster, history, isSelected, onClick }: {
   const isUni = UNISEX.has(c.cluster_id);
   const estado = c.params.estado_sensor || 'simulado';
   const stEstado = ESTADO_COLORS[estado] || ESTADO_COLORS.simulado;
-  const occ = c.params.ocupacao_instantanea;
+  const occ = c.params.ocupacao_pct ?? c.params.ocupacao_instantanea;
   const cap = c.params.capacidade_total || 100;
   const oc = occColor(occ);
 

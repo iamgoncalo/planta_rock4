@@ -16,9 +16,10 @@ export interface PanelData {
 }
 
 export interface RawClusterParams {
-  homens: number | null;
-  mulheres: number | null;
-  ocupacao_instantanea: number;
+  homens?: number | null;       // AUSENTE em wc-05/wc-06 (unissexo)
+  mulheres?: number | null;     // AUSENTE em wc-05/wc-06
+  ocupacao_instantanea: number; // % == round(100×Σabs/capacidade)
+  ocupacao_pct?: number;        // % a 1dp (mesmos abs)
   capacidade_total: number;
   tempo_espera_min: number;
   confianca_cruzada: number;

@@ -25,7 +25,7 @@ from typing import Optional, Any, Union
 from app.config import get_settings
 from app.services import ingest_store
 from app.services import fusao_rolante
-from app.clusters_capacity import ALL_CLUSTERS, is_unisex, occupancy_pct
+from app.clusters_capacity import ALL_CLUSTERS, is_unisex
 from app.sensors_topology import USAR_IR
 
 _logger = logging.getLogger(__name__)
@@ -278,9 +278,10 @@ async def ingest(
         p["homens"] = None
         p["mulheres"] = None
 
-    # Se nao veio ocupacao, mas veio pessoas_estimadas, deriva da capacidade real.
-    if p.get("ocupacao_instantanea") is None and p.get("pessoas_estimadas") is not None:
-        p["ocupacao_instantanea"] = occupancy_pct(cid, float(p["pessoas_estimadas"]))
+    # DEFINIÇÃO ÚNICA: pessoas_estimadas (WiFi, dentro+perto) é INPUT de
+    # fusão, NUNCA output de ocupação. Se a placa não enviou
+    # ocupacao_instantanea (contagem dentro), fica None — a ocupação sai
+    # da fusão canónica (_run_fusion), não de uma divisão por capacidade.
 
     ts_ms = body.ts or int(_time.time() * 1000)
     ingest_store.put(cid, p, ts_ms, porta=porta, secao=secao)

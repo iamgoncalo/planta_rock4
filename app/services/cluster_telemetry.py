@@ -15,7 +15,8 @@ Formato (hard limit definido pelo CEO):
     "mulheres": int,             ← AUSENTE em WC-05, WC-06
     "entradas_ir": int,
     "saidas_ir": int,
-    "ocupacao_instantanea": int,  ← % (derivado dos mesmos abs, ponderado por cap)
+    "ocupacao_instantanea": int,  ← % EXACTO == round(100×Σabs/cap_total)
+    "ocupacao_pct": float,        ← % a 1dp (mesmos abs — p/ frontend)
     "contagem_prosegur": int,
     "confianca_cruzada": float,   ← 0.0–1.0
     "estado_sensor": "okay" | "simulado" | "warn" | "fail"
@@ -55,7 +56,9 @@ def build_cluster_payload(state: dict[str, Any] | None) -> list[dict[str, Any]]:
     state.sections tem section_id "WC-01_M", "WC-01_F", ... ou "WC-05" (unissex).
     Agregamos por cluster_id (wc-01, wc-02, ...) somando M+F quando aplicável.
     """
-    ts_ms = int(time.time() * 1000)
+    # ts = snapshot_ts do snapshot único — o MESMO carimbo que /flow, /state,
+    # /kpis, /tv e /sections devolvem (fallback: agora, p/ chamadas avulsas)
+    ts_ms = int((state or {}).get("snapshot_ts") or 0) or int(time.time() * 1000)
 
     # Agregar sections por cluster
     agg: dict[str, dict[str, Any]] = {
@@ -121,11 +124,12 @@ def build_cluster_payload(state: dict[str, Any] | None) -> list[dict[str, Any]]:
         is_uni = cid in UNISEX_CLUSTERS
         cap_total = CLUSTER_CAPACITY.get(cid, 0)
         pessoas = int(a["pessoas"])
-        # Ocupação % derivada dos MESMOS abs (ponderada pela capacidade) —
-        # Σ ocupacao_abs do /flow e este campo ficam coerentes por construção.
-        # ARREDONDAMENTO ÚNICO: sem paragem intermédia a 1 casa decimal —
-        # 67.46 → (1dp) 67.5 → (int) 68 divergia da arredondagem directa (67).
-        occ_pct = (min(100.0, 100.0 * pessoas / cap_total)
+        # DEFINIÇÃO ÚNICA (portão F0): pessoas_estimadas = Σ ocupacao_abs
+        # das secções (o MESMO inteiro que /flow serve, fusão canónica) e
+        # ocupacao_instantanea = % EXACTO round(100×Σabs/cap_total).
+        # ARREDONDAMENTO ÚNICO: o int() final arredonda o valor cru — sem
+        # paragem intermédia a 1dp (67.46 → 67.5 → 68 divergia de 67).
+        occ_raw = (min(100.0, 100.0 * pessoas / cap_total)
                    if cap_total > 0 else 0.0)
 
         # Estado do sensor — derivado do contexto
@@ -150,7 +154,8 @@ def build_cluster_payload(state: dict[str, Any] | None) -> list[dict[str, Any]]:
         params.update({
             "entradas_ir": int(round(a["fluxo"] * 10)),
             "saidas_ir": int(round(a["fluxo"] * 9)),
-            "ocupacao_instantanea": int(round(occ_pct)),
+            "ocupacao_instantanea": int(round(occ_raw)),  # % == round(100×Σabs/cap)
+            "ocupacao_pct": round(occ_raw, 1),            # % a 1dp p/ frontend
             "contagem_prosegur": int(round(pessoas * 1.1)),
             "confianca_cruzada": 0.5 if a["simulated"] else 0.92,
             "estado_sensor": estado,

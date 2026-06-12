@@ -57,7 +57,7 @@ export default function ScreenPage() {
           const [clRaw, gender] = key.split('_');
           const colour = TOM_COLOUR[msg.tom] ?? 'var(--v3-ink)';
           const cl = clusters.find((c) => c.cluster_id.toLowerCase() === clRaw);
-          const occ = cl?.params?.ocupacao_instantanea ?? 0;
+          const occ = cl?.params?.ocupacao_pct ?? cl?.params?.ocupacao_instantanea ?? 0;
 
           return (
             <div key={key} className="v3-card">

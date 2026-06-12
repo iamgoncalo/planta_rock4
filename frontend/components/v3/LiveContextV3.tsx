@@ -20,7 +20,8 @@ export interface ClusterLive {
   ts: number;
   params: {
     pessoas_estimadas: number;
-    ocupacao_instantanea: number;
+    ocupacao_instantanea: number; // % == round(100×Σabs/capacidade)
+    ocupacao_pct?: number;        // % a 1dp (mesmos abs)
     fila_atual: number;
     tempo_espera_min: number;
     capacidade_total: number;

@@ -119,6 +119,9 @@ def _enrich_with_canonical(page: dict) -> dict:
         from app.services.state import get_live_payload
         from app.clusters_capacity import capacity_gender, capacity_inside
         live = get_live_payload()
+        # carimbo do snapshot único — o MESMO valor em /telemetry, /state,
+        # /kpis, /tv e /sections (prova de que todos leem o mesmo objecto)
+        page["snapshot_ts"] = live.snapshot_ts
         sec_map = {s.section_id: s for s in live.sections}
         for sec in page.get("secoes", []):
             cid = sec["cluster_id"]  # ex: "wc-01"

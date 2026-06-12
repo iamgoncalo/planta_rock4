@@ -99,7 +99,7 @@ function recommend(lat: number, lng: number, snap: LiveSnapshot | null) {
       const distMeters = haversine(refPoint, clusterPos(cid));
       const walkSeconds = distMeters / 1.4;
       const live = liveMap.get(cid);
-      const occ = live?.params?.ocupacao_instantanea ?? 0;
+      const occ = live?.params?.ocupacao_pct ?? live?.params?.ocupacao_instantanea ?? 0;
       const fila = live?.params?.fila_atual ?? 0;
       const waitSec = (live?.params?.tempo_espera_min ?? 0) * 60;
       const congestion = occ >= 80 ? 90 : occ >= 60 ? 25 : 0;

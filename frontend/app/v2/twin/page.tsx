@@ -82,7 +82,7 @@ const STlabel: Record<St, string> = { ok: 'Livre', warn: 'Moderado', crit: 'Chei
 
 function occOf(snap: LiveSnapshot | null, id: string): number {
   const c = snap?.clusters?.find((x) => x.cluster_id.toLowerCase() === id.toLowerCase());
-  return Math.round(c?.params?.ocupacao_instantanea ?? 0);
+  return Math.round(c?.params?.ocupacao_pct ?? c?.params?.ocupacao_instantanea ?? 0);
 }
 function distM(a: GeoCluster, b: GeoCluster) { return Math.hypot(a.e_m - b.e_m, a.n_m - b.n_m); }
 

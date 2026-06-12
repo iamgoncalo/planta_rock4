@@ -104,7 +104,7 @@ export default function HomePage() {
             ))}
           {clusters.map((c) => {
             const isUni = UNISEX.has(c.cluster_id);
-            const occ = c.params.ocupacao_instantanea ?? 0;
+            const occ = c.params.ocupacao_pct ?? c.params.ocupacao_instantanea ?? 0;
             const occColor =
               occ >= 80 ? 'var(--amber)' : occ >= 60 ? '#A85D00' : 'var(--green-dark)';
             return (

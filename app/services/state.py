@@ -255,12 +255,16 @@ def get_live_payload() -> LivePayload:
     redirected = sum(1 for s in sections if s.status == "critical" and s.fila_atual > 10)
     any_sim = any(s.simulated for s in sections)
 
+    # Carimbo único do snapshot (ms) — TODOS os endpoints devolvem este valor
+    snapshot_ts = int(time.time() * 1000)
+
     kpis = GlobalKPIs(
         avg_ocupacao_pct=round(avg_occ, 1),
         total_fila=total_fila,
         critical_sections=critical_count,
         redirected_count=redirected,
         any_simulated=any_sim,
+        snapshot_ts=snapshot_ts,
     )
 
     # Build alert messages
@@ -273,6 +277,7 @@ def get_live_payload() -> LivePayload:
         last_tick_age_s=round(time.time() - _TICK_TS, 1),
         any_simulated=any_sim,
         ambiente=ambiente_estado,
+        snapshot_ts=snapshot_ts,
     )
     # Vista telemetry (8 clusters + kpis) derivada do MESMO objecto, no MESMO
     # build — /telemetry serve isto sem recomputar nada por request.
@@ -502,4 +507,5 @@ def get_tv_state(screen_id: str) -> TVScreenState:
         critical_override=critical_override,
         last_update_ts=now,
         any_simulated=payload.any_simulated,
+        snapshot_ts=payload.snapshot_ts,
     )

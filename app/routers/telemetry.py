@@ -31,6 +31,7 @@ def _build_snapshot() -> dict[str, Any]:
     snap = get_tick_snapshot()
     clusters = snap["clusters"]
     return {
+        "snapshot_ts": snap["payload"].snapshot_ts,
         "clusters": clusters,
         "kpis": snap["kpis"],
         "cluster_count": len(clusters),
