@@ -99,11 +99,10 @@ def _section_cap(cluster_id: str, secao: str) -> int:
 
 
 def _clear_caches() -> None:
-    """Força flow + telemetry a lerem o MESMO tick do canónico."""
+    """Força um snapshot novo — flow + telemetry leem o MESMO tick."""
     from app.services import state
-    from app.routers import telemetry
     state._PAYLOAD_CACHE["data"] = None
-    telemetry._SNAP_CACHE["data"] = None
+    state._PAYLOAD_CACHE["derived"] = None
 
 
 def test_flow_14_seccoes_abs_coerente_com_pct(client: TestClient):
@@ -127,13 +126,13 @@ def test_flow_14_seccoes_abs_coerente_com_pct(client: TestClient):
     assert not erros, "abs incoerente com pct:\n" + "\n".join(erros)
 
 
-def test_flow_soma_abs_bate_com_telemetry(client: TestClient, monkeypatch):
-    """b) Σ ocupacao_abs por cluster == pessoas da ocupação instantânea do
-    telemetry ± 1, chamando os dois routers no mesmo tick.
-    O jitter visual (±3%) do telemetry é neutralizado — testa-se o caminho
-    dos dados, não o ruído de apresentação."""
-    from app.services import cluster_telemetry
-    monkeypatch.setattr(cluster_telemetry.random, "uniform", lambda a, b: 0.0)
+def test_flow_soma_abs_igual_telemetry_exacto(client: TestClient):
+    """b) SNAPSHOT ÚNICO: dois requests (/flow e /telemetry) no mesmo tick →
+    Σ ocupacao_abs por cluster == ocupação instantânea do telemetry EXACTO
+    (não ±1 — os dois endpoints consomem os MESMOS inteiros do snapshot):
+      - em pessoas:  Σ abs == pessoas_estimadas
+      - em percent:  ocupacao_instantanea == round(100 × Σ abs / cap_total)
+    """
     _clear_caches()
 
     r_flow = client.get("/api/v1/flow")
@@ -148,10 +147,46 @@ def test_flow_soma_abs_bate_com_telemetry(client: TestClient, monkeypatch):
 
     erros = []
     for cid, total in sorted(soma_abs.items()):
-        pessoas = int(tele_by_id[cid]["pessoas_estimadas"])
-        if abs(total - pessoas) > 1:
-            erros.append(f"{cid}: Σabs={total} vs telemetry={pessoas}")
-    assert not erros, "Totais por cluster divergem do telemetry:\n" + "\n".join(erros)
+        p = tele_by_id[cid]
+        pessoas = int(p["pessoas_estimadas"])
+        if total != pessoas:
+            erros.append(f"{cid}: Σabs={total} != pessoas_estimadas={pessoas}")
+        cap_total = int(p["capacidade_total"])
+        occ_esperado = int(round(min(100.0, 100.0 * total / cap_total)))
+        if int(p["ocupacao_instantanea"]) != occ_esperado:
+            erros.append(
+                f"{cid}: ocupacao_instantanea={p['ocupacao_instantanea']} "
+                f"!= round(100×{total}/{cap_total})={occ_esperado}"
+            )
+    assert not erros, "Divergência flow/telemetry no mesmo tick:\n" + "\n".join(erros)
+
+
+def test_dois_curls_no_mesmo_tick_sao_identicos(client: TestClient):
+    """SNAPSHOT ÚNICO por construção: duas leituras do /telemetry dentro do
+    mesmo tick devolvem payloads byte-a-byte idênticos (incluindo ts)."""
+    _clear_caches()
+    r1 = client.get("/api/v1/telemetry/clusters/now")
+    r2 = client.get("/api/v1/telemetry/clusters/now")
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert r1.json() == r2.json(), "dois curls no mesmo tick divergem — snapshot não é único"
+
+
+def test_unissexo_sem_campos_de_genero_no_telemetry(client: TestClient):
+    """REGRA DURA: wc-05/wc-06 (unissexo) NUNCA levam homens/mulheres no
+    payload do telemetry — nem como null; o campo não existe.
+    Os clusters M/F continuam a tê-los."""
+    _clear_caches()
+    r = client.get("/api/v1/telemetry/clusters/now")
+    assert r.status_code == 200
+    for c in r.json()["clusters"]:
+        params = c["params"]
+        if c["cluster_id"] in ("wc-05", "wc-06"):
+            assert "homens" not in params, f"{c['cluster_id']}: campo 'homens' presente"
+            assert "mulheres" not in params, f"{c['cluster_id']}: campo 'mulheres' presente"
+        else:
+            assert "homens" in params and "mulheres" in params, (
+                f"{c['cluster_id']}: M/F sem homens/mulheres"
+            )
 
 
 def test_unissexo_nunca_pct_100_com_canonico_abaixo_da_cap(client: TestClient):
@@ -188,18 +223,57 @@ def test_unissexo_nunca_pct_100_com_canonico_abaixo_da_cap(client: TestClient):
 
 
 def test_unissexo_restore_clampa_ocupacao_a_capacidade():
-    """c2) Snapshot antigo com ocupacao > capacidade actual não pode produzir
-    ocup/cap > 1 (a causa do falso pct=100 após restore)."""
+    """c2) Snapshot (versão actual) com ocupacao > capacidade não pode
+    produzir ocup/cap > 1 (a causa do falso pct=100 após restore)."""
     from app.services import fusao_rolante
     try:
         est = fusao_rolante.get_estimador("wc-06")
         assert est is not None and est.capacidade == 208
-        est.restore({"ocupacao": 999.0, "tem_dados": True})
+        est.restore({"versao": fusao_rolante.SNAPSHOT_VERSAO,
+                     "ocupacao": 999.0, "tem_dados": True})
         assert est.ocupacao is not None and est.ocupacao <= 208.0, (
             f"restore não clampou: ocupacao={est.ocupacao} > cap=208"
         )
     finally:
         fusao_rolante.reset()
+
+
+def test_restore_rejeita_snapshot_de_versao_antiga():
+    """c3) Snapshot com versão antiga (ou sem versão — pré-deploy) é
+    REJEITADO: a secção arranca limpa, sem reancorar o motor com estado
+    de um deploy anterior."""
+    from app.services import fusao_rolante
+    try:
+        for snap_antigo in ({"ocupacao": 150.0, "tem_dados": True},          # sem versao
+                            {"versao": 1, "ocupacao": 150.0, "tem_dados": True},
+                            {"versao": "lixo", "ocupacao": 150.0, "tem_dados": True}):
+            fusao_rolante.reset()
+            est = fusao_rolante.get_estimador("wc-06")
+            assert est is not None
+            est.restore(snap_antigo)
+            assert est.ocupacao is None, f"snapshot antigo aplicado: {snap_antigo}"
+            assert est.tem_dados is False, f"tem_dados ficou True com {snap_antigo}"
+        # sanidade: a versão ACTUAL é aceite (round-trip to_dict → restore)
+        fusao_rolante.reset()
+        est = fusao_rolante.get_estimador("wc-06")
+        est.ocupacao = 42.0
+        est.tem_dados = True
+        snap = est.to_dict()
+        assert snap["versao"] == fusao_rolante.SNAPSHOT_VERSAO
+        fusao_rolante.reset()
+        est2 = fusao_rolante.get_estimador("wc-06")
+        est2.restore(snap)
+        assert est2.tem_dados is True and est2.ocupacao == 42.0
+    finally:
+        fusao_rolante.reset()
+
+
+def test_health_devolve_git_sha(client: TestClient):
+    """Bónus: /health devolve git_sha (RAILWAY_GIT_COMMIT_SHA ou 'dev')."""
+    r = client.get("/api/v1/health")
+    assert r.status_code == 200
+    sha = r.json().get("git_sha")
+    assert isinstance(sha, str) and 1 <= len(sha) <= 7, f"git_sha inválido: {sha!r}"
 
 
 def test_flow_fila_e_espera_continuam_canonicos(client: TestClient):

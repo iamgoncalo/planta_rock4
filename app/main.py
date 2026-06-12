@@ -271,7 +271,9 @@ def create_app() -> FastAPI:
 
     @app.get("/health", include_in_schema=False)
     async def _bare_health():
-        return {"status": "ok"}
+        import os as _os
+        return {"status": "ok",
+                "git_sha": (_os.getenv("RAILWAY_GIT_COMMIT_SHA") or "dev")[:7]}
 
     @app.get("/{full_path:path}", include_in_schema=False)
     @app.post("/{full_path:path}", include_in_schema=False)

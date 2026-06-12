@@ -133,8 +133,13 @@ def _enrich_with_canonical(page: dict) -> dict:
             if canon is not None:
                 pct = canon.ocupacao_pct
                 sec["ocupacao_pct"] = pct
-                # coerência interna obrigatória: abs deriva do MESMO pct
-                sec["ocupacao_abs"] = int(round(pct * cap / 100.0)) if cap > 0 else 0
+                # abs: o inteiro canónico do SNAPSHOT ÚNICO (o mesmo que o
+                # /telemetry soma em pessoas_estimadas — igualdade exacta por
+                # construção); fallback local com o mesmo arredondamento
+                if canon.ocupacao_abs is not None:
+                    sec["ocupacao_abs"] = int(canon.ocupacao_abs)
+                else:
+                    sec["ocupacao_abs"] = int(round(pct * cap / 100.0)) if cap > 0 else 0
                 sec["fila_actual"] = canon.fila_atual
                 sec["tempo_espera_min"] = canon.tempo_espera_min
         # Recalcular kpi_02 (ocupação média) com os valores canónicos

@@ -39,6 +39,10 @@ class SensorReading(BaseModel):
 class SectionState(BaseModel):
     section_id: str
     ocupacao_pct: float = 0.0         # 0–100
+    # pessoas dentro AGORA = round(pct × cap oficial / 100) — calculado UMA vez
+    # por tick no snapshot único; /flow e /telemetry consomem ESTE inteiro
+    # (mesmo arredondamento por construção, zero recomputação por request)
+    ocupacao_abs: Optional[int] = None
     fila_atual: int = 0
     tempo_espera_min: float = 0.0
     fluxo_entrada_pmin: float = 0.0

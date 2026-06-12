@@ -125,10 +125,18 @@ def _cluster_id(section_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Payload cache (5 s, in-memory)
+# SNAPSHOT ÚNICO POR TICK (in-memory, single-process)
 # ---------------------------------------------------------------------------
-_PAYLOAD_CACHE: dict = {"data": None, "ts": 0.0}
-_PAYLOAD_TTL = 5.0
+# O motor canónico gera UM objecto de estado por tick: payload (14 secções)
+# + vista telemetry (8 clusters + kpis), construídos UMA vez e servidos a
+# TODOS os endpoints de leitura (/flow, /telemetry, /state, /kpis, /tv,
+# /sections). Dois curls no mesmo tick devolvem números idênticos por
+# construção — é este objecto que o cache edge serve a 100k pessoas.
+# Invalidação: advance_tick / ingest / fusão demo põem data=None.
+# NOTA multi-worker: o Railway corre 1 processo uvicorn (railway.json);
+# com vários workers este cache passaria a Redis com TTL=70s.
+_PAYLOAD_CACHE: dict = {"data": None, "ts": 0.0, "derived": None}
+_PAYLOAD_TTL = 60.0   # fallback — o tick (advance_tick) invalida primeiro
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +220,25 @@ def get_live_payload() -> LivePayload:
     except Exception:
         pass  # a fusão rolante nunca pode derrubar o /state
 
+    # Ocupação absoluta canónica: round(pct × cap oficial / 100), calculada
+    # UMA vez aqui — /flow e /telemetry consomem ESTE inteiro (mesmo
+    # arredondamento por construção). Secções U usam a capacidade única do
+    # cluster (133/208), sem chave de género.
+    try:
+        from app.clusters_capacity import capacity_gender, capacity_inside
+        com_abs: list[SectionState] = []
+        for s in sections:
+            cid = _cluster_id(s.section_id).lower()
+            if s.section_id in UNISEX_SECTIONS:
+                cap = capacity_inside(cid)
+            else:
+                cap = capacity_gender(cid, s.section_id.split("_")[1])
+            abs_ = int(round(s.ocupacao_pct * cap / 100.0)) if cap > 0 else 0
+            com_abs.append(s.model_copy(update={"ocupacao_abs": abs_}))
+        sections = com_abs
+    except Exception:
+        pass  # sem capacidades, as secções seguem com ocupacao_abs=None
+
     # Flags de ambiente (chuva/calor/vento) — informativo, nunca parte o /state
     ambiente_estado: Optional[dict] = None
     try:
@@ -247,9 +274,40 @@ def get_live_payload() -> LivePayload:
         any_simulated=any_sim,
         ambiente=ambiente_estado,
     )
+    # Vista telemetry (8 clusters + kpis) derivada do MESMO objecto, no MESMO
+    # build — /telemetry serve isto sem recomputar nada por request.
+    try:
+        from app.services import cluster_telemetry
+        state_dict = result.model_dump()
+        derived = {
+            "clusters": cluster_telemetry.build_cluster_payload(state_dict),
+            "kpis": cluster_telemetry.build_kpis(state_dict),
+        }
+    except Exception:
+        derived = None  # /telemetry recompõe defensivamente se faltar
+
     _PAYLOAD_CACHE["data"] = result
     _PAYLOAD_CACHE["ts"] = now
+    _PAYLOAD_CACHE["derived"] = derived
     return result
+
+
+def get_tick_snapshot() -> dict:
+    """Snapshot único do tick: payload canónico + vista telemetry.
+
+    TODOS os endpoints de leitura servem deste objecto — um tick, um objecto,
+    todos leem o mesmo."""
+    payload = get_live_payload()
+    derived = _PAYLOAD_CACHE.get("derived")
+    if derived is None:  # build da vista falhou — recompõe uma vez, defensivo
+        from app.services import cluster_telemetry
+        state_dict = payload.model_dump()
+        derived = {
+            "clusters": cluster_telemetry.build_cluster_payload(state_dict),
+            "kpis": cluster_telemetry.build_kpis(state_dict),
+        }
+        _PAYLOAD_CACHE["derived"] = derived
+    return {"payload": payload, **derived}
 
 
 def get_section_state(section_id: str) -> SectionState:
@@ -375,6 +433,9 @@ def advance_tick(scenario: str) -> None:
     CURRENT_SCENARIO = scenario
     TICK += 1
     _TICK_TS = time.time()
+    # novo tick → novo snapshot único (o TTL é só fallback)
+    _PAYLOAD_CACHE["data"] = None
+    _PAYLOAD_CACHE["derived"] = None
 
 
 def ingest_ir(reading: IRReading) -> None:

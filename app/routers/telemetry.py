@@ -11,45 +11,28 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 from typing import Any, AsyncIterator
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import StreamingResponse
 
-from app.services.cluster_telemetry import (
-    build_cluster_payload, build_kpis, CLUSTER_IDS,
-)
-from app.services.state import get_live_payload
+from app.services.cluster_telemetry import CLUSTER_IDS
+from app.services.state import get_tick_snapshot
 
 router = APIRouter(prefix="/api/v1/telemetry", tags=["telemetry"])
 
-# ── Cache de 5s para o snapshot ──────────────────────────────────────────────
-# Os dados so mudam ao ritmo das placas (~10s), por isso servir a mesma
-# resposta durante 5s e seguro e transforma 1 calculo pesado em milhares de
-# leituras baratas. Resolve a carga de visitantes (auditoria seccao 3).
-_SNAP_CACHE: dict[str, object] = {"data": None, "ts": 0.0}
-_SNAP_TTL_S = 5.0
-
-
-def _cached_snapshot() -> dict:
-    now = time.monotonic()
-    if _SNAP_CACHE["data"] is not None and (now - _SNAP_CACHE["ts"]) < _SNAP_TTL_S:
-        return _SNAP_CACHE["data"]  # type: ignore[return-value]
-    snap = _build_snapshot()
-    _SNAP_CACHE["data"] = snap
-    _SNAP_CACHE["ts"] = now
-    return snap
-
 
 def _build_snapshot() -> dict[str, Any]:
-    state = get_live_payload()
-    state_dict = state.dict() if hasattr(state, "dict") else state if isinstance(state, dict) else {}
-    clusters = build_cluster_payload(state_dict)
-    kpis = build_kpis(state_dict)
+    """Serve a vista telemetry do SNAPSHOT ÚNICO do tick (state.py).
+
+    Zero recomputação por request: clusters + kpis são construídos UMA vez
+    por tick junto do payload canónico — /flow, /state e este endpoint leem
+    o mesmo objecto, por construção."""
+    snap = get_tick_snapshot()
+    clusters = snap["clusters"]
     return {
         "clusters": clusters,
-        "kpis": kpis,
+        "kpis": snap["kpis"],
         "cluster_count": len(clusters),
         "expected_clusters": CLUSTER_IDS,
     }
@@ -63,7 +46,7 @@ async def clusters_now(response: Response) -> dict[str, Any]:
     durante 5s — os pedidos nem chegam ao servidor. s-maxage = cache CDN.
     """
     response.headers["Cache-Control"] = "public, max-age=5, s-maxage=5"
-    return _cached_snapshot()
+    return _build_snapshot()
 
 
 @router.get("/clusters/stream")

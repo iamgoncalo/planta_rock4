@@ -10,12 +10,12 @@ Formato (hard limit definido pelo CEO):
   "ts": 1634712287000,           ← epoch milliseconds
   "params": {
     "telemoveis_detectados": int,
-    "pessoas_estimadas": int,
-    "homens": int | null,        ← null em WC-05, WC-06 (unissex)
-    "mulheres": int | null,      ← null em WC-05, WC-06
+    "pessoas_estimadas": int,    ← Σ ocupacao_abs das secções (snapshot único)
+    "homens": int,               ← AUSENTE em WC-05, WC-06 (unissex, regra dura)
+    "mulheres": int,             ← AUSENTE em WC-05, WC-06
     "entradas_ir": int,
     "saidas_ir": int,
-    "ocupacao_instantanea": int,  ← %
+    "ocupacao_instantanea": int,  ← % (derivado dos mesmos abs, ponderado por cap)
     "contagem_prosegur": int,
     "confianca_cruzada": float,   ← 0.0–1.0
     "estado_sensor": "okay" | "simulado" | "warn" | "fail"
@@ -28,8 +28,6 @@ agregando sections (WC-01_M + WC-01_F) num cluster_id "wc-01".
 from __future__ import annotations
 
 import time
-import random  # v18-jitter
-from statistics import mean
 from typing import Any
 
 # Clusters unissex (FEM=0 no XLSX oficial)
@@ -86,29 +84,27 @@ def build_cluster_payload(state: dict[str, Any] | None) -> list[dict[str, Any]]:
         a = agg[cluster_id]
         a["section_count"] += 1
         occ_pct = float(sec.get("ocupacao_pct", 0))
-        # v18-jitter: +/- 3% para evitar steady state visual
-        occ_pct = max(0.0, min(100.0, occ_pct * (1 + random.uniform(-0.03, 0.03))))
+        # SEM jitter: este payload é construído UMA vez por tick no snapshot
+        # único (state.get_tick_snapshot) — ruído por chamada fazia dois curls
+        # no mesmo tick devolverem números diferentes.
         a["occ_list"].append(occ_pct)
-        # Pessoas estimadas a partir da ocupação × capacidade
-        cap = CLUSTER_CAPACITY.get(cluster_id, 100)
-        if cluster_id in UNISEX_CLUSTERS:
-            # Unissex: 1 só section, calculamos pessoas direct
-            a["pessoas"] = (occ_pct / 100.0) * cap
-            a["homens"] = 0.0  # null no output
-            a["mulheres"] = 0.0
-        else:
-            # M/F: 2 sections, somamos por género — capacidade OFICIAL por
-            # género (clusters_capacity), não cap/2: wc-01 é 72M+63F, e o
-            # denominador errado fazia os totais divergirem do /flow canónico.
-            from app.clusters_capacity import capacity_gender
-            gender = sec.get("gender", "M")
-            cap_sec = float(capacity_gender(cluster_id, gender) or (cap / 2.0))
-            pessoas_sec = (occ_pct / 100.0) * cap_sec
-            a["pessoas"] += pessoas_sec
+        # Pessoas: ocupacao_abs canónico do snapshot — o MESMO inteiro que o
+        # /flow serve por secção. Fallback: pct × capacidade oficial.
+        from app.clusters_capacity import capacity_gender, capacity_inside
+        gender = sec.get("gender") or "M"
+        abs_ = sec.get("ocupacao_abs")
+        if abs_ is None:
+            cap_sec = (capacity_inside(cluster_id)
+                       if cluster_id in UNISEX_CLUSTERS
+                       else capacity_gender(cluster_id, gender))
+            abs_ = int(round((occ_pct / 100.0) * cap_sec)) if cap_sec > 0 else 0
+        abs_ = int(abs_)
+        a["pessoas"] += abs_
+        if cluster_id not in UNISEX_CLUSTERS:
             if gender == "M":
-                a["homens"] = pessoas_sec
+                a["homens"] = abs_
             elif gender == "F":
-                a["mulheres"] = pessoas_sec
+                a["mulheres"] = abs_
 
         a["fluxo"] += float(sec.get("fluxo_entrada_pmin", 0))
         a["fila"] += int(sec.get("fila_atual", 0))
@@ -123,7 +119,12 @@ def build_cluster_payload(state: dict[str, Any] | None) -> list[dict[str, Any]]:
     for cid in CLUSTER_IDS:
         a = agg[cid]
         is_uni = cid in UNISEX_CLUSTERS
-        occ_avg = round(mean(a["occ_list"]), 1) if a["occ_list"] else 0.0
+        cap_total = CLUSTER_CAPACITY.get(cid, 0)
+        pessoas = int(a["pessoas"])
+        # Ocupação % derivada dos MESMOS abs (ponderada pela capacidade) —
+        # Σ ocupacao_abs do /flow e este campo ficam coerentes por construção
+        occ_pct = (round(min(100.0, 100.0 * pessoas / cap_total), 1)
+                   if cap_total > 0 else 0.0)
 
         # Estado do sensor — derivado do contexto
         if a["simulated"]:
@@ -136,22 +137,27 @@ def build_cluster_payload(state: dict[str, Any] | None) -> list[dict[str, Any]]:
             estado = "okay"
 
         params = {
-            "telemoveis_detectados": int(round(a["pessoas"] * 1.4)),
-            "pessoas_estimadas": int(round(a["pessoas"])),
-            "homens": None if is_uni else int(round(a["homens"])),
-            "mulheres": None if is_uni else int(round(a["mulheres"])),
+            "telemoveis_detectados": int(round(pessoas * 1.4)),
+            "pessoas_estimadas": pessoas,
+        }
+        # REGRA DURA: clusters unissexo NUNCA levam homens/mulheres —
+        # nem como null; o campo não existe no payload.
+        if not is_uni:
+            params["homens"] = int(a["homens"])
+            params["mulheres"] = int(a["mulheres"])
+        params.update({
             "entradas_ir": int(round(a["fluxo"] * 10)),
             "saidas_ir": int(round(a["fluxo"] * 9)),
-            "ocupacao_instantanea": int(round(occ_avg)),
-            "contagem_prosegur": int(round(a["pessoas"] * 1.1)),
+            "ocupacao_instantanea": int(round(occ_pct)),
+            "contagem_prosegur": int(round(pessoas * 1.1)),
             "confianca_cruzada": 0.5 if a["simulated"] else 0.92,
             "estado_sensor": estado,
             # Extras úteis (não breakam o hard-limit do CEO)
             "fila_atual": a["fila"],
             "tempo_espera_min": round(a["tempo_espera"], 1),
             "is_unissex": is_uni,
-            "capacidade_total": CLUSTER_CAPACITY[cid],
-        }
+            "capacidade_total": cap_total,
+        })
         payload.append({
             "cluster_id": cid,
             "ts": ts_ms,

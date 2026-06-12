@@ -59,6 +59,11 @@ DECAY_TAU_S = 20 * 60.0           # tau do decaimento sem nós (20 min)
 PESO_C1, PESO_C2, PESO_C3 = 0.45, 0.35, 0.20
 HISTORIA_MAX = 720                # pontos de memória por secção (~12h a 1/min)
 HISTORIA_SNAPSHOT = 240           # pontos persistidos no snapshot Postgres
+# Versão do schema do snapshot persistido. restore() REJEITA versões
+# anteriores (arranque limpo) — estado de deploys antigos nunca reancora
+# o motor. Incrementar sempre que a semântica dos campos mudar.
+# v2 (12 Jun 2026): ocupacao clampada à capacidade; abs canónico no snapshot.
+SNAPSHOT_VERSAO = 2
 
 # Congestão "parada vs a fluir" (multidão parada ≠ fila a fluir)
 CONGESTAO_OCUP_RATIO = 0.75       # ocupação > 0.75×capacidade…
@@ -543,6 +548,7 @@ class EstimadorSeccao:
     # — snapshot —
     def to_dict(self) -> dict:
         return {
+            "versao": SNAPSHOT_VERSAO,
             "regressao": self.regressao.to_dict(),
             "nos": {nid: dict(rec) for nid, rec in self.nos.items()},
             "c_ultima": self.c_ultima,
@@ -562,6 +568,18 @@ class EstimadorSeccao:
         }
 
     def restore(self, d: dict) -> None:
+        # Snapshots de versões/schemas anteriores são REJEITADOS — a secção
+        # arranca limpa em vez de reancorar o motor com estado de um deploy
+        # antigo (ex.: ocupação persistida com semântica de capacidade velha).
+        try:
+            if int(d.get("versao") or 0) < SNAPSHOT_VERSAO:
+                _logger.info(
+                    "fusao_rolante: snapshot %s versão %s < %s — ignorado, "
+                    "arranque limpo", self.section_id, d.get("versao"),
+                    SNAPSHOT_VERSAO)
+                return
+        except (TypeError, ValueError):
+            return  # versao ilegível = snapshot inválido
         try:
             a0 = A0_INTERIOR if is_interior_fechado(self.cluster_id) else A0_EXTERIOR
             self.regressao = RegressaoRolante.from_dict(d.get("regressao") or {}, a0)
