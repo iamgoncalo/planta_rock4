@@ -84,3 +84,148 @@ def test_telemetry_returns_all_clusters(client: TestClient):
     ids = {c["cluster_id"] for c in data["clusters"]}
     expected = {f"wc-0{i}" for i in range(1, 9)}
     assert ids == expected, f"Clusters inesperados: {ids.symmetric_difference(expected)}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Onda 12 Jun: ocupacao_pct E ocupacao_abs canónicos nas 14 secções
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _section_cap(cluster_id: str, secao: str) -> int:
+    """Capacidade oficial da secção (tabela única clusters_capacity)."""
+    from app.clusters_capacity import capacity_gender, capacity_inside
+    if secao == "U":
+        return capacity_inside(cluster_id)
+    return capacity_gender(cluster_id, secao)
+
+
+def _clear_caches() -> None:
+    """Força flow + telemetry a lerem o MESMO tick do canónico."""
+    from app.services import state
+    from app.routers import telemetry
+    state._PAYLOAD_CACHE["data"] = None
+    telemetry._SNAP_CACHE["data"] = None
+
+
+def test_flow_14_seccoes_abs_coerente_com_pct(client: TestClient):
+    """a) Nas 14 secções, abs deriva do MESMO pct canónico:
+    |100×ocupacao_abs/cap − ocupacao_pct| ≤ 2."""
+    _clear_caches()
+    r = client.get("/api/v1/flow")
+    assert r.status_code == 200
+    secoes = r.json()["secoes"]
+    assert len(secoes) == 14, f"Esperadas 14 secções, vieram {len(secoes)}"
+    erros = []
+    for sec in secoes:
+        cap = _section_cap(sec["cluster_id"], sec["secao"])
+        assert cap > 0, f"capacidade inválida para {sec['cluster_id']}/{sec['secao']}"
+        pct_de_abs = 100.0 * sec["ocupacao_abs"] / cap
+        if abs(pct_de_abs - sec["ocupacao_pct"]) > 2.0:
+            erros.append(
+                f"{sec['cluster_id']}_{sec['secao']}: abs={sec['ocupacao_abs']} "
+                f"(={pct_de_abs:.1f}%) vs pct={sec['ocupacao_pct']} (cap={cap})"
+            )
+    assert not erros, "abs incoerente com pct:\n" + "\n".join(erros)
+
+
+def test_flow_soma_abs_bate_com_telemetry(client: TestClient, monkeypatch):
+    """b) Σ ocupacao_abs por cluster == pessoas da ocupação instantânea do
+    telemetry ± 1, chamando os dois routers no mesmo tick.
+    O jitter visual (±3%) do telemetry é neutralizado — testa-se o caminho
+    dos dados, não o ruído de apresentação."""
+    from app.services import cluster_telemetry
+    monkeypatch.setattr(cluster_telemetry.random, "uniform", lambda a, b: 0.0)
+    _clear_caches()
+
+    r_flow = client.get("/api/v1/flow")
+    r_tele = client.get("/api/v1/telemetry/clusters/now")
+    assert r_flow.status_code == 200 and r_tele.status_code == 200
+
+    tele_by_id = {c["cluster_id"]: c["params"] for c in r_tele.json()["clusters"]}
+    from collections import defaultdict
+    soma_abs: dict[str, int] = defaultdict(int)
+    for sec in r_flow.json()["secoes"]:
+        soma_abs[sec["cluster_id"]] += int(sec["ocupacao_abs"])
+
+    erros = []
+    for cid, total in sorted(soma_abs.items()):
+        pessoas = int(tele_by_id[cid]["pessoas_estimadas"])
+        if abs(total - pessoas) > 1:
+            erros.append(f"{cid}: Σabs={total} vs telemetry={pessoas}")
+    assert not erros, "Totais por cluster divergem do telemetry:\n" + "\n".join(erros)
+
+
+def test_unissexo_nunca_pct_100_com_canonico_abaixo_da_cap(client: TestClient):
+    """c) WC-05/WC-06 (unissexo, secção única, SEM género): com o canónico
+    bem abaixo da capacidade (133/208), o /flow nunca pode reportar pct=100.
+    Regressão do falso 100% que excluía a válvula de pressão WC-06 do routing."""
+    from app.services import fusao_rolante
+    try:
+        # âncoras de cabeças muito abaixo da cap — sem chave de género
+        fusao_rolante.ingest_cabecas("wc-05", None, 25.0, fonte="manual")
+        fusao_rolante.ingest_cabecas("wc-06", None, 40.0, fonte="manual")
+        _clear_caches()
+        r = client.get("/api/v1/flow")
+        assert r.status_code == 200
+        uni = {s["cluster_id"]: s for s in r.json()["secoes"] if s["secao"] == "U"}
+        assert set(uni) == {"wc-05", "wc-06"}, f"secções U inesperadas: {set(uni)}"
+        for cid, cap in (("wc-05", 133), ("wc-06", 208)):
+            sec = uni[cid]
+            assert sec["ocupacao_pct"] < 100.0, (
+                f"{cid}: pct={sec['ocupacao_pct']} com canónico ≪ cap={cap} "
+                "— falso 100% (bug de denominador)"
+            )
+            assert sec["ocupacao_abs"] < cap, (
+                f"{cid}: abs={sec['ocupacao_abs']} ≥ cap={cap}"
+            )
+            # coerência directa com a âncora ingerida (±2 pessoas de arredondamento)
+            esperado = {"wc-05": 25, "wc-06": 40}[cid]
+            assert abs(sec["ocupacao_abs"] - esperado) <= 2, (
+                f"{cid}: abs={sec['ocupacao_abs']} vs âncora={esperado}"
+            )
+    finally:
+        fusao_rolante.reset()
+        _clear_caches()
+
+
+def test_unissexo_restore_clampa_ocupacao_a_capacidade():
+    """c2) Snapshot antigo com ocupacao > capacidade actual não pode produzir
+    ocup/cap > 1 (a causa do falso pct=100 após restore)."""
+    from app.services import fusao_rolante
+    try:
+        est = fusao_rolante.get_estimador("wc-06")
+        assert est is not None and est.capacidade == 208
+        est.restore({"ocupacao": 999.0, "tem_dados": True})
+        assert est.ocupacao is not None and est.ocupacao <= 208.0, (
+            f"restore não clampou: ocupacao={est.ocupacao} > cap=208"
+        )
+    finally:
+        fusao_rolante.reset()
+
+
+def test_flow_fila_e_espera_continuam_canonicos(client: TestClient):
+    """d) Regressão: fila_actual e tempo_espera_min do /flow continuam
+    idênticos ao /telemetry/clusters/now (Σ fila por cluster; max espera)."""
+    _clear_caches()
+    r_flow = client.get("/api/v1/flow")
+    r_tele = client.get("/api/v1/telemetry/clusters/now")
+    assert r_flow.status_code == 200 and r_tele.status_code == 200
+
+    tele_by_id = {c["cluster_id"]: c["params"] for c in r_tele.json()["clusters"]}
+    from collections import defaultdict
+    fila: dict[str, int] = defaultdict(int)
+    espera: dict[str, float] = defaultdict(float)
+    for sec in r_flow.json()["secoes"]:
+        cid = sec["cluster_id"]
+        fila[cid] += int(sec["fila_actual"])
+        espera[cid] = max(espera[cid], float(sec["tempo_espera_min"]))
+
+    erros = []
+    for cid in sorted(fila):
+        t = tele_by_id[cid]
+        if fila[cid] != int(t["fila_atual"]):
+            erros.append(f"{cid}: fila /flow={fila[cid]} vs telemetry={t['fila_atual']}")
+        if abs(espera[cid] - float(t["tempo_espera_min"])) > 0.05:
+            erros.append(
+                f"{cid}: espera /flow={espera[cid]} vs telemetry={t['tempo_espera_min']}"
+            )
+    assert not erros, "fila/espera divergem do telemetry:\n" + "\n".join(erros)

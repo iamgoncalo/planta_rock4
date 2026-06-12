@@ -1,6 +1,7 @@
-from copy_engine import (
-    build_copy, ClusterSnapshot, SectionInput,
-)
+try:
+    from app.copy_engine import build_copy, ClusterSnapshot, SectionInput
+except ImportError:  # execução directa a partir de app/ (python test_copy_engine.py)
+    from copy_engine import build_copy, ClusterSnapshot, SectionInput
 
 def sec(cid, seccao, pct, is_uni=False, fila=0, espera=0.0, fluxo=0.0, conf=0.9, live=True):
     sid = f"{cid}_{seccao}"

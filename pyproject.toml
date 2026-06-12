@@ -17,7 +17,9 @@ dependencies = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests"]
+# "app" incluído para os testes canónicos (test_flow_canonical, test_copy_engine)
+# correrem na suite por defeito — antes só corriam quando invocados à mão.
+testpaths = ["tests", "app"]
 
 [tool.hatch.envs.default]
 dependencies = [

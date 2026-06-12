@@ -177,7 +177,18 @@ def get_live_payload() -> LivePayload:
                 rp = rolante.get(sid)
                 extra: dict = {}
                 if rp is not None:
-                    cap = max(int(rp.get("capacidade") or 0), 1)
+                    # Denominador: capacidade do payload rolante; se faltar,
+                    # cai para a tabela oficial (clusters_capacity) — NUNCA
+                    # para 1, que produzia um falso ocupacao_pct=100 nas
+                    # secções unissexo (WC-05/WC-06, sem chave de género).
+                    cap = int(rp.get("capacidade") or 0)
+                    if cap <= 0:
+                        from app.clusters_capacity import (
+                            capacity_gender, capacity_inside, is_unisex,
+                        )
+                        cap = (capacity_inside(cid) if is_unisex(cid)
+                               else capacity_gender(cid, sid.split("_")[-1].upper()))
+                    cap = max(cap, 1)
                     fila = float(rp["fila_estimada"])
                     extra = {
                         "ocupacao_pct": round(min(100.0, max(

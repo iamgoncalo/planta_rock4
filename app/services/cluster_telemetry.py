@@ -97,11 +97,14 @@ def build_cluster_payload(state: dict[str, Any] | None) -> list[dict[str, Any]]:
             a["homens"] = 0.0  # null no output
             a["mulheres"] = 0.0
         else:
-            # M/F: 2 sections, somamos por género
-            cap_half = cap / 2.0
-            pessoas_sec = (occ_pct / 100.0) * cap_half
-            a["pessoas"] += pessoas_sec
+            # M/F: 2 sections, somamos por género — capacidade OFICIAL por
+            # género (clusters_capacity), não cap/2: wc-01 é 72M+63F, e o
+            # denominador errado fazia os totais divergirem do /flow canónico.
+            from app.clusters_capacity import capacity_gender
             gender = sec.get("gender", "M")
+            cap_sec = float(capacity_gender(cluster_id, gender) or (cap / 2.0))
+            pessoas_sec = (occ_pct / 100.0) * cap_sec
+            a["pessoas"] += pessoas_sec
             if gender == "M":
                 a["homens"] = pessoas_sec
             elif gender == "F":

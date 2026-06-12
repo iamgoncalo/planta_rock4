@@ -90,25 +90,51 @@ class ReanchorReq(BaseModel):
 
 
 def _enrich_with_canonical(page: dict) -> dict:
-    """Sobrepõe ocupacao_pct / fila_actual / tempo_espera_min com get_live_payload().
+    """Sobrepõe ocupacao_pct / ocupacao_abs / fila_actual / tempo_espera_min
+    com get_live_payload().
 
     Garante que /v2/flow mostra os mesmos números que /v2/screen, /v2/twin e
     /v2/scor. Os campos de calibração do FlowEngine (residual, deriva,
     confianca, routing) mantêm-se inalterados — são específicos desta página.
+
+    DIAGNÓSTICO (12 Jun 2026) — porque é que a ocupação divergia do telemetry:
+      1. A sobreposição de ocupacao_pct ERA aplicada (fila/espera batiam 8/8),
+         MAS ocupacao_abs nunca era sobreposto — ficava o valor integrado do
+         FlowEngine, que deriva sem re-âncora. Resultado: pct canónico com abs
+         do engine no MESMO payload (incoerência interna, ex. WC-05 pct=38.3
+         com abs/cap=18.8%) e Σ abs por cluster a divergir do telemetry de
+         forma estável e crescente (+9, +22, ... pessoas).
+      2. Ramo unissexo: o falso pct=100 nascia a montante, no canónico —
+         em state.py o denominador da fusão rolante caía para max(cap, 1)=1
+         quando "capacidade" faltava no payload da secção, e o restore() de
+         snapshot repunha "ocupacao" sem clamp à capacidade física actual
+         (snapshot antigo > cap nova → ocupacao/cap > 1 → clamp a 100).
+         Corrigido NA CAUSA: fallback para a capacidade oficial em state.py
+         e clamp físico no restore() da fusão rolante — nunca clamp aqui.
+    Agora pct E abs derivam ambos do canónico: abs = round(pct × cap / 100),
+    com cap da tabela oficial (clusters_capacity) — secções M/F pelo género,
+    WC-05/WC-06 com a capacidade única do cluster (133/208), SEM género.
     """
     try:
         from app.services.state import get_live_payload
+        from app.clusters_capacity import capacity_gender, capacity_inside
         live = get_live_payload()
         sec_map = {s.section_id: s for s in live.sections}
         for sec in page.get("secoes", []):
+            cid = sec["cluster_id"]  # ex: "wc-01"
             # "wc-01" + "M" → "WC-01_M"  |  "wc-05" + "U" → "WC-05"
             if sec["secao"] == "U":
-                key = f"WC-{sec['cluster_id'][3:]}"
+                key = cid.upper()
+                cap = capacity_inside(cid)          # 133 / 208 — sem género
             else:
-                key = f"WC-{sec['cluster_id'][3:]}_{sec['secao']}"
+                key = f"{cid.upper()}_{sec['secao']}"
+                cap = capacity_gender(cid, sec["secao"])
             canon = sec_map.get(key)
             if canon is not None:
-                sec["ocupacao_pct"] = canon.ocupacao_pct
+                pct = canon.ocupacao_pct
+                sec["ocupacao_pct"] = pct
+                # coerência interna obrigatória: abs deriva do MESMO pct
+                sec["ocupacao_abs"] = int(round(pct * cap / 100.0)) if cap > 0 else 0
                 sec["fila_actual"] = canon.fila_atual
                 sec["tempo_espera_min"] = canon.tempo_espera_min
         # Recalcular kpi_02 (ocupação média) com os valores canónicos

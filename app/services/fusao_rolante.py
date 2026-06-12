@@ -570,7 +570,13 @@ class EstimadorSeccao:
             self.ts_cabeca = d.get("ts_cabeca")
             self.wifi_na_ancora = d.get("wifi_na_ancora")
             self.fonte_ancora = d.get("fonte_ancora")
-            self.ocupacao = d.get("ocupacao")
+            # invariante físico (igual ao caminho live): ocupação restaurada
+            # de snapshot nunca pode exceder a capacidade ACTUAL da secção —
+            # um snapshot com semântica antiga > cap dava ocup/cap > 1 e,
+            # a jusante, um falso ocupacao_pct=100 no canónico.
+            ocup = d.get("ocupacao")
+            self.ocupacao = (max(0.0, min(float(self.capacidade), float(ocup)))
+                             if ocup is not None else None)
             self.ts_estimativa = d.get("ts_estimativa")
             self.fila_estimada = float(d.get("fila_estimada") or 0.0)
             self.flag_anomalia = bool(d.get("flag_anomalia", False))
